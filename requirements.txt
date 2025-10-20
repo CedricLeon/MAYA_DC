@@ -25,3 +25,9 @@ pre-commit      # hooks for applying linters on commit
 rich            # beautiful text formatting in terminal
 pytest          # tests
 sh            # for running bash commands in some tests (linux/macos only)
+
+# --------- data access (HF + Zarr) --------- #
+zarr>=2.15.0
+numcodecs>=0.12.0
+fsspec>=2023.10.0
+huggingface_hub>=0.21.0

@@ -30,6 +30,9 @@ dependencies:
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
+  - zarr=2.*
+  - numcodecs=0.*
+  - fsspec=2023.*
 
   # --------- loggers --------- #
   - wandb
@@ -43,3 +46,4 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
+      - huggingface_hub>=0.21.0
