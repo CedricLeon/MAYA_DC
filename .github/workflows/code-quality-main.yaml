@@ -1,0 +1,24 @@
+# Same as `code-quality-pr.yaml` but triggered on commit to main branch
+# and runs on all files (instead of only the changed ones)
+
+name: Code Quality Main
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.11 # Force 'setuptools' to be installed, see https://ericmjl.github.io/blog/2023/10/29/how-to-debug-a-modulenotfounderror-in-the-interrogate-pre-commit-hook/
+
+      - name: Run pre-commits
+        uses: pre-commit/action@v3.0.1
