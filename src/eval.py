@@ -4,7 +4,7 @@ import hydra
 import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -45,7 +45,12 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
-    assert cfg.ckpt_path
+    ckpt_path = OmegaConf.select(cfg, "ckpt_path")
+    if OmegaConf.is_missing(cfg, "ckpt_path") or not ckpt_path:
+        raise ValueError(
+            "`ckpt_path` must be provided for evaluation, e.g. "
+            "`python src/eval.py ckpt_path=/path/to/model.ckpt`."
+        )
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -72,7 +77,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting testing!")
-    trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
     # for predictions use trainer.predict(...)
     # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)

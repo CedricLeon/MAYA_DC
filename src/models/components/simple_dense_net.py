@@ -45,7 +45,7 @@ class SimpleDenseNet(nn.Module):
         batch_size, channels, width, height = x.size()
 
         # (batch, 1, width, height) -> (batch, 1*width*height)
-        x = x.view(batch_size, -1)
+        x = x.reshape(batch_size, -1)
 
         return self.model(x)
 

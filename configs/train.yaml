@@ -6,7 +6,7 @@ defaults:
   - data: mnist
   - model: mnist
   - callbacks: default
-  - logger: wandb
+  - logger: csv
   - trainer: default
   - paths: default
   - extras: default
