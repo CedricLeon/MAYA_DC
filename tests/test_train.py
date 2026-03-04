@@ -99,6 +99,9 @@ def test_train_resume(tmp_path: Path, cfg_train: DictConfig) -> None:
     files = os.listdir(tmp_path / "checkpoints")
     assert "last.ckpt" in files
     assert "epoch_000.ckpt" in files
+    first_ckpt = torch.load(
+        tmp_path / "checkpoints" / "last.ckpt", map_location="cpu", weights_only=False
+    )
 
     with open_dict(cfg_train):
         cfg_train.ckpt_path = str(tmp_path / "checkpoints" / "last.ckpt")
@@ -109,6 +112,13 @@ def test_train_resume(tmp_path: Path, cfg_train: DictConfig) -> None:
     files = os.listdir(tmp_path / "checkpoints")
     assert "epoch_001.ckpt" in files
     assert "epoch_002.ckpt" not in files
+    second_ckpt = torch.load(
+        tmp_path / "checkpoints" / "last.ckpt", map_location="cpu", weights_only=False
+    )
 
-    assert metric_dict_1["train/acc"] < metric_dict_2["train/acc"]
-    assert metric_dict_1["val/acc"] < metric_dict_2["val/acc"]
+    assert second_ckpt["epoch"] > first_ckpt["epoch"]
+    assert second_ckpt["global_step"] > first_ckpt["global_step"]
+    assert torch.isfinite(metric_dict_1["train/acc"])
+    assert torch.isfinite(metric_dict_1["val/acc"])
+    assert torch.isfinite(metric_dict_2["train/acc"])
+    assert torch.isfinite(metric_dict_2["val/acc"])

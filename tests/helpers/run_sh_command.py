@@ -1,3 +1,4 @@
+import sys
 from typing import List
 
 import pytest
@@ -13,10 +14,14 @@ def run_sh_command(command: List[str]) -> None:
 
     :param command: A list of shell commands as strings.
     """
-    msg_stderr_output = None
+    if not _SH_AVAILABLE:
+        pytest.fail(reason="`sh` package is not available in this environment.")
+
     try:
-        sh.python(command)
+        python_command = sh.Command(sys.executable)
+        python_command(command)
     except sh.ErrorReturnCode as e:
-        msg_stderr_output = e.stderr.decode()
-    if msg_stderr_output:
-        pytest.fail(reason=msg_stderr_output)  # msg argument deprecated (use reason instead)
+        stderr_output = e.stderr.decode().strip() if e.stderr else ""
+        stdout_output = e.stdout.decode().strip() if e.stdout else ""
+        msg_output = stderr_output or stdout_output or str(e)
+        pytest.fail(reason=msg_output)  # msg argument deprecated (use reason instead)

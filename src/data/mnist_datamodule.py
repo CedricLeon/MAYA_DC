@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
 
@@ -126,12 +126,31 @@ class MNISTDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             trainset = MNIST(self.hparams.data_dir, train=True, transform=self.transforms)
             testset = MNIST(self.hparams.data_dir, train=False, transform=self.transforms)
-            dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_train, self.data_val, self.data_test = random_split(
-                dataset=dataset,
-                lengths=self.hparams.train_val_test_split,
+
+            if len(self.hparams.train_val_test_split) != 3:
+                raise ValueError(
+                    "`train_val_test_split` must contain exactly 3 values: [train, val, test]."
+                )
+
+            train_split, val_split, test_split = self.hparams.train_val_test_split
+            if train_split + val_split != len(trainset):
+                raise ValueError(
+                    "Train/val split mismatch: "
+                    f"{train_split} + {val_split} != {len(trainset)}"
+                )
+            if test_split != len(testset):
+                raise ValueError(
+                    "Test split mismatch: "
+                    f"{test_split} != {len(testset)}. "
+                    "MNIST test split should remain the official holdout set."
+                )
+
+            self.data_train, self.data_val = random_split(
+                dataset=trainset,
+                lengths=(train_split, val_split),
                 generator=torch.Generator().manual_seed(42),
             )
+            self.data_test = testset
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
@@ -143,6 +162,7 @@ class MNISTDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
+            persistent_workers=self.hparams.num_workers > 0,
             shuffle=True,
         )
 
@@ -156,6 +176,7 @@ class MNISTDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
+            persistent_workers=self.hparams.num_workers > 0,
             shuffle=False,
         )
 
@@ -169,6 +190,7 @@ class MNISTDataModule(LightningDataModule):
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
+            persistent_workers=self.hparams.num_workers > 0,
             shuffle=False,
         )
 

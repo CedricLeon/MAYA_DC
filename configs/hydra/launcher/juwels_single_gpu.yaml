@@ -3,3 +3,4 @@ defaults:
 
 timeout_min: 100
 nodes: 1
+gres: gpu:1

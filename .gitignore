@@ -153,3 +153,9 @@ outputs/
 
 # Aim logging
 .aim
+
+# Local agent/tooling artifacts
+.agents/
+.codex/
+AGENTS.md
+uv.lock
