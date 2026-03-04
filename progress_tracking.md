@@ -32,6 +32,8 @@
   - [ ] Comparison of 2 architectures **Factorized Prior (FP)** against **Hyper Prior (HP)**
   - [ ] Baseline comparison?
     - Maybe I can see if I can use CompressAI to run conventional codecs to have as baselines, e.g., JPEG, JPEG2000, WebP, AV1? This will take time though.
+      - Seem doable, see [Copilot chat](https://github.com/copilot/c/a5f16500-3e75-46d2-af53-409919ea2dd6). I need to cherry pick codecs for which I don't need the binaries.
+      - For example JPEG and WebP, maybe [BPG](https://bellard.org/bpg/) for something more recent (2018) see if binaries feat my Linux.
 - [ ] Results generation
   - [ ] RD-curves
   - [ ] Visualizations
@@ -42,6 +44,7 @@
 ### Tmp TODO list
 
 - [ ] Populate README
+- [ ] Delete MNIST examples
 - [ ] Fix `MAYA4` download for some files where edge chunks get forgotten.
   - Doesn't work: "s1a-s3-raw-s-hh-20230619t153555-20230619t153611-049056-05e631.zarr" misses the last row and the last column of its chunks: `[(0, 5), (1, 5), (2, 5), (3, 5), (4, 5), (5, 5), (6, 5), (7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5)]`
   - Works normally: "s1a-s1-raw-s-hh-20230511t151235-20230511t151251-048487-05d521.zarr"
