@@ -9,12 +9,26 @@ from compressai.layers import GDN
 from compressai.models import CompressionModel
 from torch import Size, Tensor
 
-# from src.models.components.layers import ResidualBlock, make_activation
-# from src.utils.debug import log_tensor_shape
+
+def make_activation(act_name: str, channels: int, inverse: bool = False) -> nn.Module:
+    t = act_name.lower()
+    if t == "gdn":
+        return GDN(channels, inverse=inverse)
+    if t == "relu":
+        return nn.ReLU(inplace=True)
+    if t in ("identity", "none"):
+        return nn.Identity()
+    raise ValueError(f"Unknown activation type: {act_name}")
 
 
-class ResidualScaleHyperprior(CompressionModel):
-    """Scale Hyperprior model."""
+class ScaleHyperprior(CompressionModel):
+    """Scale Hyperprior model with custom number of input channels (CompressAI models enforce 3).
+
+    args:
+        nb_input_channels: Number of channels in the input tensor
+        nb_channels_main: Number of channels in the main encoder/decoder (default 128)
+        activation: Activation function to use in the main encoder/decoder ("gdn", "relu", "identity"). Hyperprior uses ReLU regardless.
+    """
 
     def __init__(
         self,
@@ -28,29 +42,26 @@ class ResidualScaleHyperprior(CompressionModel):
         self.nb_input_channels: int = nb_input_channels
         self.activation: str = activation
 
-        # Big ugly parameter for shape logging during inference
-        self.DEBUG_MODE: bool = False
-
         self.entropy_bottleneck: EntropyBottleneck = EntropyBottleneck(N)
         self.gaussian_conditional: GaussianConditional = GaussianConditional(None)
 
         self.g_a = nn.Sequential(
             nn.Conv2d(self.nb_input_channels, N, kernel_size=5, stride=2, padding=2),
-            GDN(N),
+            make_activation(self.activation, N),
             nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
-            GDN(N),
+            make_activation(self.activation, N),
             nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
-            GDN(N),
+            make_activation(self.activation, N),
             nn.Conv2d(N, M, kernel_size=5, stride=2, padding=2),
         )
 
         self.g_s = nn.Sequential(
             nn.ConvTranspose2d(M, N, kernel_size=5, stride=2, padding=1, output_padding=2),
-            GDN(N, inverse=True),
+            make_activation(self.activation, N, inverse=True),
             nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
-            GDN(N, inverse=True),
+            make_activation(self.activation, N, inverse=True),
             nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
-            GDN(N, inverse=True),
+            make_activation(self.activation, N, inverse=True),
             nn.ConvTranspose2d(
                 N, self.nb_input_channels, kernel_size=5, stride=2, padding=1, output_padding=2
             ),
@@ -103,7 +114,8 @@ class ResidualScaleHyperprior(CompressionModel):
         """Return a new model instance from `state_dict`."""
         N = state_dict["g_a.0.weight"].size(0)
         M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
+        activation = "gdn" if "g_a.1.weight" in state_dict else "relu"
+        net = cls(N, M, activation)
         net.load_state_dict(state_dict)
         return net
 
