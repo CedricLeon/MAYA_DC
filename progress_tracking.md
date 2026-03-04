@@ -9,17 +9,30 @@
   - [ ] Select few specific tiles to make a dataset
     - How many tiles?
     - Spatial Splits?
+    - How to preprocess (normalize) the data?
 - [x] Get familiar with sarpyx processing pipeline
 - [x] Extract and re-implement the azimuth compression pipeline
   - [x] Ensure manual implementation generate similar results than $az$ products, see [sarpyx_azimuth_compression.py](scripts/sarpyx_azimuth_compression.py)
 - [ ] Model architecture implementation
   - [x] `nn.Module` implementation
+    - [x] Configurable activation function (for ablation studies)
+  - [ ] `LightningDataModule` implementation
+    - [ ] How does MAYA4 interfaces with my code?
+    - [ ] Where do I do the normalization? In the "Dataset"? It could also be in the `LighningModule`.
   - [ ] `LighningModule` implementation
-    1. Compress/Reconstruct patches with a buffer in azimuth direction, like +500 cells each side
-    2. Then perform azimuth compression
-    3. Drop the buffer pixels
-    4. Compute the SLC loss on the main cell area.
+    - [ ] Main logic steps:
+      1. Compress/Reconstruct patches with a buffer in azimuth direction, like +500 cells each side
+      2. Then perform azimuth compression
+      3. Drop the buffer pixels
+      4. Compute the SLC loss on the main cell area.
+    - TODOs:
+      - [x] Main logic with management of the 2 optimizers
+      - [ ] Write the processing of the dataset into the Input RCMC and the target SLC (`some_function(batch)` in [rcmc_compress_module.py](src/models/rcmc_compress_module.py))
+      - [ ] Write the test step
+      - [ ] Logic check everything
   - [ ] Modular loss implementation to be able to try MSE or KDE
+    - [ ] Create `metrics.py` to implement the criterion (to be dynamically instantiated by Hydra from the `LighningModule`)
+    - [ ] Add all quality metrics in there.
 - [ ] Dataset validation
   - [ ] Checking data quality for selected tiles
   - [ ] Ensuring focusing pipeline behavior (with an identity model)
