@@ -19,16 +19,6 @@ import src.utils as utils
 from src.utils import log_info, log_step
 
 
-def compute_correlation(a, b):
-    """Compute the normalized complex correlation."""
-    return np.abs(np.sum(a * np.conj(b))) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-
-def compute_mag_correlation(a, b):
-    """Compute the Pearson correlation of the magnitudes."""
-    return np.corrcoef(np.abs(a).flatten(), np.abs(b).flatten())[0, 1]
-
-
 def main():
     """Complete processing pipeline using Sarpyx for Azimuth Compression on RCMC data."""
     t_start_total = time.time()
@@ -353,9 +343,9 @@ def main():
     corr_global_slice = slice(roi_az_slice.start + MARGIN_AZ, roi_az_slice.stop - MARGIN_AZ)
     corr_az_gt = p.get_array("az")[corr_global_slice, roi_rg_slice]
 
-    corr_c = compute_correlation(corr_az_recon, corr_az_gt)
+    corr_c = utils.compute_correlation(corr_az_recon, corr_az_gt)
     log_info(f"Sarpyx correlation (complex): {corr_c:.4f}")
-    corr_m = compute_mag_correlation(corr_az_recon, corr_az_gt)
+    corr_m = utils.compute_mag_correlation(corr_az_recon, corr_az_gt)
     log_info(f"Sarpyx correlation (magnitude): {corr_m:.4f}")
 
     del corr_az_recon, corr_az_gt

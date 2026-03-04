@@ -1,6 +1,8 @@
 """Public utilities exported for convenient importing."""
 
 from src.utils.processing_utils import (
+    compute_correlation,
+    compute_mag_correlation,
     load_partitioned_dataframe,
     log_info,
     log_step,

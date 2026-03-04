@@ -2,6 +2,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -205,3 +206,18 @@ def scan_available_data_extent(
         log_info(f"  -> Azimuth Slice: {az_slice}, Range Slice: {rg_slice}")
 
     return az_slice, rg_slice
+
+
+# ---------------------------------------------------------
+# Mathematical Utilities
+# ---------------------------------------------------------
+
+
+def compute_correlation(a, b):
+    """Compute the normalized complex correlation."""
+    return np.abs(np.sum(a * np.conj(b))) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+def compute_mag_correlation(a, b):
+    """Compute the Pearson correlation of the magnitudes."""
+    return np.corrcoef(np.abs(a).flatten(), np.abs(b).flatten())[0, 1]

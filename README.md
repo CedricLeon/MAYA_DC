@@ -11,9 +11,10 @@
 </div>
 
 ## Tmp TODO list
-- [ ] Fix `MAYA4` downloard for some files where edge chunks get forgotten.
+- [ ] Fix `MAYA4` download for some files where edge chunks get forgotten.
   - Doesn't work: "s1a-s3-raw-s-hh-20230619t153555-20230619t153611-049056-05e631.zarr" misses the last row and the last column of its chunks: `[(0, 5), (1, 5), (2, 5), (3, 5), (4, 5), (5, 5), (6, 5), (7, 0), (7, 1), (7, 2), (7, 3), (7, 4), (7, 5)]`
   - Works normally: "s1a-s1-raw-s-hh-20230511t151235-20230511t151251-048487-05d521.zarr"
+- [ ] When available install compressai==1.2.9 to fix opposing numpy version requirements between rasterio (>2.0) and compressai==1.2.8(<2.0). Right now numpy is 2.3.5, I manually checked it should not be a problem for compressai.
 
 ## Description
 This project uses Neural Image Compression (NIC) networks to compress Range Cell Migration Corrected (RCMC) SAR data.
