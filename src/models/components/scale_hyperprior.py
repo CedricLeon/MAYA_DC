@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Dict, Tuple, Union
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,18 @@ from compressai.entropy_models import EntropyBottleneck, GaussianConditional
 from compressai.layers import GDN
 from compressai.models import CompressionModel
 from torch import Size, Tensor
+
+
+@dataclass
+class Likelihoods:
+    y: Tensor
+    z: Tensor
+
+
+@dataclass
+class ForwardOutput:
+    x_hat: Tensor
+    likelihoods: Likelihoods
 
 
 def make_activation(act_name: str, channels: int, inverse: bool = False) -> nn.Module:
@@ -25,21 +38,26 @@ class ScaleHyperprior(CompressionModel):
     """Scale Hyperprior model with custom number of input channels (CompressAI models enforce 3).
 
     args:
-        nb_input_channels: Number of channels in the input tensor
-        nb_channels_main: Number of channels in the main encoder/decoder (default 128)
-        activation: Activation function to use in the main encoder/decoder ("gdn", "relu", "identity"). Hyperprior uses ReLU regardless.
+        nb_input_channels: Number of channels in the input tensor (default 2 for complex SAR)
+        nb_channels_main: Number of channels in the main encoder/decoder (N, default 128)
+        nb_channels_latent: Number of channels in the latent space (M, default 2*N).
+            In Ballé et al. 2018, M and N are independent.  Set explicitly for ablations.
+        activation: Activation function for main encoder/decoder ("gdn", "relu", "identity").
+            Hyperprior always uses ReLU regardless of this setting.
     """
 
     def __init__(
         self,
         nb_input_channels: int = 2,
         nb_channels_main: int = 128,
+        nb_channels_latent: int = 256,
         activation: str = "gdn",
     ):
         super().__init__()
         N = nb_channels_main
-        M = 2 * N  # Number of channels for hyperprior
+        M = nb_channels_latent
         self.nb_input_channels: int = nb_input_channels
+        self.nb_channels_latent: int = nb_channels_latent
         self.activation: str = activation
 
         self.entropy_bottleneck: EntropyBottleneck = EntropyBottleneck(N)
@@ -56,14 +74,14 @@ class ScaleHyperprior(CompressionModel):
         )
 
         self.g_s = nn.Sequential(
-            nn.ConvTranspose2d(M, N, kernel_size=5, stride=2, padding=1, output_padding=2),
+            nn.ConvTranspose2d(M, N, kernel_size=5, stride=2, padding=2, output_padding=1),
             make_activation(self.activation, N, inverse=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
+            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
             make_activation(self.activation, N, inverse=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
+            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
             make_activation(self.activation, N, inverse=True),
             nn.ConvTranspose2d(
-                N, self.nb_input_channels, kernel_size=5, stride=2, padding=1, output_padding=2
+                N, self.nb_input_channels, kernel_size=5, stride=2, padding=2, output_padding=1
             ),
         )
 
@@ -76,9 +94,9 @@ class ScaleHyperprior(CompressionModel):
         )
 
         self.h_s = nn.Sequential(
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
+            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=1, output_padding=2),
+            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(N, M, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
@@ -94,7 +112,7 @@ class ScaleHyperprior(CompressionModel):
         """Return the overall downsampling factor of the hyperprior."""
         return 8  # 2^3 from the 3 stride=2 layers in h_a
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> ForwardOutput:
         """Complete forward pass through the model, returning the reconstructed output and
         likelihoods."""
         y = self.g_a(x)
@@ -103,23 +121,30 @@ class ScaleHyperprior(CompressionModel):
         scales_hat = self.h_s(z_hat)
         y_hat, y_likelihoods = self.gaussian_conditional(y, scales_hat)
         x_hat = self.g_s(y_hat)
-
-        return {
-            "x_hat": x_hat,
-            "likelihoods": {"y": y_likelihoods, "z": z_likelihoods},
-        }
+        return ForwardOutput(
+            x_hat=x_hat, likelihoods=Likelihoods(y=y_likelihoods, z=z_likelihoods)
+        )
 
     @classmethod
     def from_state_dict(cls, state_dict):
-        """Return a new model instance from `state_dict`."""
-        N = state_dict["g_a.0.weight"].size(0)
-        M = state_dict["g_a.6.weight"].size(0)
-        activation = "gdn" if "g_a.1.weight" in state_dict else "relu"
-        net = cls(N, M, activation)
+        """Return a new model instance from ``state_dict``.
+
+        Reconstructs the constructor arguments from the weight tensor shapes:
+        - ``g_a.0.weight`` shape is ``(N, nb_input_channels, kH, kW)``
+          → ``nb_input_channels = size(1)``, ``nb_channels_main N = size(0)``
+        - ``g_a.6.weight`` shape is ``(M, N, kH, kW)``
+          → ``nb_channels_latent M = size(0)``
+        - Activation detected by presence of GDN parameter ``g_a.1._beta``.
+        """
+        nb_input_channels = state_dict["g_a.0.weight"].size(1)
+        nb_channels_main = state_dict["g_a.0.weight"].size(0)  # N
+        nb_channels_latent = state_dict["g_a.6.weight"].size(0)  # M
+        activation = "gdn" if "g_a.1._beta" in state_dict else "relu"
+        net = cls(nb_input_channels, nb_channels_main, nb_channels_latent, activation)
         net.load_state_dict(state_dict)
         return net
 
-    def compress(self, x):
+    def compress(self, x: Tensor) -> dict[str, Any]:
         """Compress an input tensor `x` into a dictionary containing the compressed bitstrings and
         shape information."""
         y = self.g_a(x)
@@ -133,7 +158,7 @@ class ScaleHyperprior(CompressionModel):
         y_strings = self.gaussian_conditional.compress(y, indexes)
         return {"strings": [y_strings, z_strings], "shape": z.size()[-2:]}
 
-    def decompress(self, strings, shape):
+    def decompress(self, strings: Any, shape: tuple[int, int]) -> dict[str, Tensor]:
         """Decompress the given `strings` using the provided `shape` information, returning the
         reconstructed tensor."""
         assert isinstance(strings, list) and len(strings) == 2
@@ -141,5 +166,5 @@ class ScaleHyperprior(CompressionModel):
         scales_hat = self.h_s(z_hat)
         indexes = self.gaussian_conditional.build_indexes(scales_hat)
         y_hat = self.gaussian_conditional.decompress(strings[0], indexes, z_hat.dtype)
-        x_hat = self.g_s(y_hat).clamp_(0, 1)
+        x_hat = self.g_s(y_hat)  # .clamp_(0, 1)
         return {"x_hat": x_hat}

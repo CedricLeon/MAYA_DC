@@ -1,0 +1,49 @@
+# @package _global_
+
+# RCMC Compression Model Configuration
+# Scale Hyperprior architecture for SAR data compression
+
+defaults:
+  - override /model: rcmc_compress.yaml
+
+model:
+  _target_: src.models.rcmc_compress_module.RCMCDCmodule
+
+  # Network architecture
+  net:
+    _target_: src.models.components.scale_hyperprior.ScaleHyperprior
+    nb_input_channels: 2  # Complex data: real + imaginary
+    nb_channels_main: 128  # Number of channels in main network
+    activation: "gdn"  # Activation function (gdn or relu)
+
+  # Loss function
+  criterion:
+    _target_: src.models.components.losses.SimpleMSELoss
+    lmbda: 0.01  # Rate-distortion tradeoff
+
+  # Azimuth compression
+  azimuth_buffer: 512
+
+  # Optimizers
+  net_optimizer:
+    _target_: torch.optim.Adam
+    _partial_: true
+    lr: 0.0001
+    betas: [0.9, 0.999]
+
+  aux_optimizer:
+    _target_: torch.optim.Adam
+    _partial_: true
+    lr: 0.001
+
+  # Scheduler
+  scheduler:
+    _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+    _partial_: true
+    mode: "min"
+    factor: 0.5
+    patience: 5
+
+  # Training
+  gradient_clip_norm: 1.0
+  compile: False

@@ -1,0 +1,33 @@
+_target_: src.data.maya4_datamodule.MAYA4DataModule
+data_dir: ${paths.data_dir}
+
+# Patch configuration
+patch_size: [2048, 2048]  # (azimuth, range)
+azimuth_buffer: 512  # Buffer size for azimuth compression
+
+# Training configuration
+batch_size: 4
+num_workers: 4
+pin_memory: True
+
+# Data splits by geographic partition
+train_parts: ["PT2"]
+val_parts: ["PT1"]
+test_parts: ["PT4"]
+
+# Filtering
+years: [2023]
+polarizations: ["hh"]
+stripmap_modes: [1, 2, 3]
+
+# Dataset size control
+# max_products_*: number of zarr products to draw patches from
+# samples_per_prod: patches drawn per product per epoch (0 = all patches)
+max_products_train: 50
+max_products_val: 5
+max_products_test: 5
+samples_per_prod: 0
+
+# Data download mode
+# Set online: true ONCE to download data from HuggingFace, then use false for all runs
+online: false
