@@ -5,11 +5,22 @@ from setuptools import find_packages, setup
 setup(
     name="src",
     version="0.0.1",
-    description="Describe Your Cool Project",
+    description="Neural compression experiments for SAR data",
     author="",
     author_email="",
     url="https://github.com/user/project",
-    install_requires=["lightning", "hydra-core"],
+    install_requires=[
+        "lightning",
+        "hydra-core",
+        "rootutils",
+        "torchmetrics",
+        "compressai",
+        "pandas",
+        "zarr",
+        "numcodecs",
+        "fsspec",
+        "huggingface_hub",
+    ],
     packages=find_packages(),
     # use this to customize global commands available in the terminal after installing the package
     entry_points={

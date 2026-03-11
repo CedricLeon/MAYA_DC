@@ -1,97 +1,144 @@
-from typing import Any, Dict, Optional, Tuple
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any, Optional
 
 import lightning
 import torch
-import torchmetrics.functional.image as F
-from compressai.models import CompressionModel
-from torch import Tensor
+from torch import Tensor, nn
+
+from src.models.components.azimuth_focus import IdentityFocus
+
+try:
+    from compressai.models import CompressionModel
+except ModuleNotFoundError:  # pragma: no cover - optional dependency at import time
+    CompressionModel = nn.Module  # type: ignore[misc,assignment]
 
 
 class RCMCDCmodule(lightning.LightningModule):
-    """Lightning Module to compress Range Cell Migration Corrected (RCMC) SAR data."""
+    """Lightning module for differentiable RCMC-to-SLC compression training."""
 
     def __init__(
         self,
         net: CompressionModel,
-        criterion: torch.nn.Module,
+        criterion: nn.Module,
         net_optimizer: torch.optim.Optimizer,
         aux_optimizer: torch.optim.Optimizer,
-        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
+        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+        focus: Optional[nn.Module] = None,
         gradient_clip_norm: float = 1.0,
         compile: bool = False,
-    ):
-        """Initialize the Lightning Module.
-
-        Args:
-            net: Neural network module
-            criterion: Loss criterion
-            net_optimizer: Main optimizer for network parameters
-            aux_optimizer: Auxiliary optimizer for quantiles
-            scheduler: Learning rate scheduler
-            gradient_clip_norm: Maximum gradient norm for clipping (default: 1.0)
-            compile: Whether to compile the model (default: False)
-        """
+    ) -> None:
         super().__init__()
+        self.save_hyperparameters(ignore=["criterion", "focus", "net"], logger=False)
 
-        # Save hyperparameters to be accessible via self.hparams (ignore nn.Modules)
-        self.save_hyperparameters(ignore=["criterion", "net"], logger=False)
-
-        # Hydra recursive instantiation.
         self.net = net
         self.criterion = criterion
-
-        # Activate manual optimization, because we have two optimizers.
+        self.focus = focus if focus is not None else IdentityFocus()
         self.automatic_optimization = False
 
-    def forward(self, x: Tensor):
-        """Forward pass through the network."""
-        return self.net(x)
+        if compile:
+            self.net = torch.compile(self.net)
+
+    def forward(self, x: Tensor) -> dict[str, Tensor]:
+        output = self.net(x)
+        if not isinstance(output, Mapping):
+            raise TypeError(f"Compression model must return a mapping, got {type(output)!r}")
+        if "x_hat" not in output:
+            raise KeyError("Compression model output must contain an 'x_hat' tensor")
+        return dict(output)
 
     def _log_metrics(
         self,
         prefix: str,
-        criterion: Dict[str, Any],
-        aux_loss: float,
+        criterion: Mapping[str, Tensor],
+        aux_loss: Tensor,
     ) -> None:
-        """Log training, validation, or test metrics."""
         log_info = {f"{prefix}/{key}": value for key, value in criterion.items()}
         log_info[f"{prefix}/aux"] = aux_loss
 
-        # Configure per prefix (e.g. train/valid/test) logging **kwargs.
-        on_step, on_epoch, prog_bar, sync_dist = None, None, False, True
+        on_step, on_epoch, prog_bar = False, True, False
         if prefix == "train":
-            on_step, on_epoch, prog_bar, sync_dist = True, False, False, True
+            on_step, on_epoch = True, False
         elif prefix == "valid":
-            on_step, on_epoch, prog_bar, sync_dist = False, True, True, True
-        elif prefix == "test":
-            on_step, on_epoch, prog_bar, sync_dist = False, True, False, True
+            prog_bar = True
 
         self.log_dict(
             log_info,
-            sync_dist=sync_dist,
+            sync_dist=self.trainer is not None and self.trainer.world_size > 1,
             on_step=on_step,
             on_epoch=on_epoch,
             prog_bar=prog_bar,
         )
 
-    def some_function(self, batch) -> Tuple[Tensor, Tensor]:
-        """Extract inputs and targets from the batch.
+    @staticmethod
+    def _as_batch_mapping(batch: Any) -> Mapping[str, Any]:
+        if isinstance(batch, Mapping):
+            return batch
 
-        Placeholder for actual logic.
-        """
-        x_batch, y_batch = batch
-        return x_batch, y_batch
+        if isinstance(batch, Sequence):
+            if len(batch) == 2:
+                return {"rcmc_input": batch[0], "slc_target": batch[1], "focus_metadata": None}
+            if len(batch) == 3:
+                return {
+                    "rcmc_input": batch[0],
+                    "slc_target": batch[1],
+                    "focus_metadata": batch[2],
+                }
 
-    def training_step(self, batch, batch_idx):
-        """Training step where we manually optimize because we have 2 optimizers."""
+        raise TypeError(
+            "Batch must be a mapping or a tuple/list shaped as "
+            "(rcmc_input, slc_target[, focus_metadata])"
+        )
+
+    def _unpack_batch(self, batch: Any) -> tuple[Tensor, Tensor, Any]:
+        batch_map = self._as_batch_mapping(batch)
+
+        if "rcmc_input" not in batch_map or "slc_target" not in batch_map:
+            raise KeyError("Batch must contain 'rcmc_input' and 'slc_target'")
+
+        return batch_map["rcmc_input"], batch_map["slc_target"], batch_map.get("focus_metadata")
+
+    def model_step(self, batch: Any) -> tuple[dict[str, Tensor], Tensor]:
+        rcmc_input, slc_target, focus_metadata = self._unpack_batch(batch)
+        model_output = self.forward(rcmc_input)
+        focused_prediction = self.focus(model_output["x_hat"], focus_metadata)
+
+        criterion = self.criterion(
+            prediction=focused_prediction,
+            target=slc_target,
+            likelihoods=model_output.get("likelihoods"),
+        )
+        if not isinstance(criterion, Mapping) or "loss" not in criterion:
+            raise TypeError("Criterion must return a mapping containing a differentiable 'loss'")
+
+        loss = criterion["loss"]
+        if not isinstance(loss, Tensor):
+            raise TypeError("Criterion 'loss' must be a tensor")
+        if self.training and not loss.requires_grad:
+            raise RuntimeError(
+                "Training loss does not require gradients. Check the prediction path for "
+                "NumPy conversions or detached tensors."
+            )
+
+        aux_loss_fn = getattr(self.net, "aux_loss", None)
+        if not callable(aux_loss_fn):
+            aux_loss = torch.zeros((), device=loss.device, dtype=loss.dtype)
+        else:
+            aux_loss = aux_loss_fn()
+            if not isinstance(aux_loss, Tensor):
+                raise TypeError("Compression model auxiliary loss must be a tensor")
+
+        return dict(criterion), aux_loss
+
+    def training_step(self, batch: Any, batch_idx: int) -> None:
+        del batch_idx
         net_optimizer, aux_optimizer = self.optimizers()
+        net_optimizer.zero_grad()
+        aux_optimizer.zero_grad()
 
-        # Forward pass
-        rcmc_input, slc_target = self.some_function(batch)
-        rcmc_recon = self.forward(rcmc_input)
-        criterion = self.criterion(rcmc_recon, slc_target)
+        criterion, aux_loss = self.model_step(batch)
 
-        # Backward pass for the main loss
         self.manual_backward(criterion["loss"])
         self.clip_gradients(
             net_optimizer,  # type: ignore[attr-defined]
@@ -99,83 +146,77 @@ class RCMCDCmodule(lightning.LightningModule):
             gradient_clip_algorithm="norm",
         )
         net_optimizer.step()
-        net_optimizer.zero_grad()
 
-        # Auxiliary loss (entropy bottleneck) if available
-        aux_loss = self.net.aux_loss()
-        self.manual_backward(aux_loss)
-        aux_optimizer.step()
-        aux_optimizer.zero_grad()
+        if aux_loss.requires_grad:
+            self.manual_backward(aux_loss)
+            aux_optimizer.step()
 
-        # Step scheduler if available (for epoch-based schedulers)
+        scheduler = self.lr_schedulers()
         if self.trainer.is_last_batch:
-            sch = self.lr_schedulers()
-            sch.step()  # type: ignore[attr-defined]
+            if scheduler is None:
+                pass
+            elif isinstance(scheduler, (list, tuple)):
+                for item in scheduler:
+                    if item is not None and not isinstance(
+                        item, torch.optim.lr_scheduler.ReduceLROnPlateau
+                    ):
+                        item.step()
+            elif not isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step()
 
-        # custom learning rate logging
-        lr = net_optimizer.param_groups[0]["lr"]
-        self.log("train/lr", lr, on_step=True, on_epoch=False, prog_bar=False, logger=True)
+        self.log(
+            "train/lr",
+            net_optimizer.param_groups[0]["lr"],
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            logger=True,
+        )
+        self._log_metrics("train", criterion, aux_loss.detach())
 
-        # Log metrics
-        self._log_metrics("train", criterion, aux_loss.item())
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-        rcmc_input, slc_target = self.some_function(batch)
-        rcmc_recon = self.forward(rcmc_input)
-        criterion = self.criterion(rcmc_recon, slc_target)
-        aux_loss = self.net.aux_loss()
-        self._log_metrics("valid", criterion, aux_loss.item())
+    def validation_step(self, batch: Any, batch_idx: int) -> None:
+        del batch_idx
+        criterion, aux_loss = self.model_step(batch)
+        self._log_metrics("valid", criterion, aux_loss.detach())
 
     def on_test_epoch_start(self) -> None:
-        """Update the entropy bottleneck tables before testing."""
-        self.net.update(force=True)
+        update = getattr(self.net, "update", None)
+        if callable(update):
+            update(force=True)
 
-    def test_step(self, batch, batch_idx):
-        """Test step."""
-        # # Log extra metrics
-        # self.log_dict(
-        #     all_metrics,
-        #     on_step=False,
-        #     on_epoch=True,
-        #     prog_bar=False,
-        # )
-        pass
+    def test_step(self, batch: Any, batch_idx: int) -> None:
+        del batch_idx
+        criterion, aux_loss = self.model_step(batch)
+        self._log_metrics("test", criterion, aux_loss.detach())
 
     def on_validation_epoch_end(self) -> None:
-        """Update LR scheduler based on validation loss."""
-        lr_scheduler = self.lr_schedulers()
-        if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            lr_scheduler.step(self.trainer.callback_metrics["valid/loss"])
+        scheduler = self.lr_schedulers()
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler.step(self.trainer.callback_metrics["valid/loss"])
+        elif isinstance(scheduler, (list, tuple)):
+            for item in scheduler:
+                if isinstance(item, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    item.step(self.trainer.callback_metrics["valid/loss"])
 
     def configure_optimizers(self):
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar, you might have multiple.
+        def is_aux_parameter(name: str) -> bool:
+            return name == "quantiles" or name.endswith(".quantiles")
 
-        Returns:
-            A dict containing the configured optimizers and learning-rate schedulers to be used for training.
-        """
         main_params = [
             param
             for name, param in self.net.named_parameters()
-            if param.requires_grad and not name.endswith(".quantiles")
+            if param.requires_grad and not is_aux_parameter(name)
         ]
         aux_params = [
             param
             for name, param in self.net.named_parameters()
-            if param.requires_grad and name.endswith(".quantiles")
+            if param.requires_grad and is_aux_parameter(name)
         ]
 
-        # Validation: Ensure no parameter overlap and all parameters are accounted for
         all_params = {param for _, param in self.net.named_parameters() if param.requires_grad}
-        assert not set(main_params) & set(
-            aux_params
-        )  # "Intersection found in main and auxiliary parameters"
-        assert (
-            set(main_params) | set(aux_params) == all_params
-        )  # "Union of main and auxiliary parameters does not match all model parameters"
+        assert not set(main_params) & set(aux_params)
+        assert set(main_params) | set(aux_params) == all_params
 
-        # Instantiate optimizer(s)
         net_optimizer = self.hparams.net_optimizer(params=main_params)  # type: ignore[attr-defined]
         aux_optimizer = self.hparams.aux_optimizer(params=aux_params)  # type: ignore[attr-defined]
 

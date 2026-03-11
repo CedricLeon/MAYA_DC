@@ -1,0 +1,18 @@
+_target_: src.data.maya_sar_datamodule.MAYASARDataModule
+data_dir: ${paths.data_dir}test_complete_download
+train_partitions: [PT1]
+val_partitions: [PT2]
+test_partitions: [PT4]
+patch_size: [512, 512]
+stride: [512, 512]
+azimuth_margin: 500
+range_margin: 0
+batch_size: 1
+num_workers: 0
+pin_memory: False
+persistent_workers: False
+level_from: rcmc
+level_to: az
+max_products: null
+enforce_full_context: True
+shuffle_train: True

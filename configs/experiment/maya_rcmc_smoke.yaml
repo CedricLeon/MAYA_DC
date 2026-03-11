@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - override /data: maya_sar
+  - override /model: rcmc_hyperprior
+  - override /logger: csv
+  - override /trainer: cpu
+
+task_name: train/maya4/rcmc_hyperprior
+tags: ["maya4", "rcmc", "hyperprior"]
+seed: 42
+
+trainer:
+  min_epochs: 1
+  max_epochs: 1
+  log_every_n_steps: 1
+  limit_train_batches: 2
+  limit_val_batches: 1
+  limit_test_batches: 1
+
+data:
+  batch_size: 1
+  patch_size: [512, 512]
+  stride: [512, 512]
+  azimuth_margin: 128
+  max_products: 1
+
+model:
+  net:
+    nb_channels_main: 32
+  criterion:
+    lmbda: 0.01

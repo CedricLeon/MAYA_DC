@@ -21,11 +21,12 @@ channels:
 # compatibility is usually guaranteed
 
 dependencies:
-  - python=3.11
+  - python=3.12
   - pytorch=2.*
   - torchvision=0.*
   - lightning=2.*
   - torchmetrics=0.*
+  - pandas=2.*
   - hydra-core=1.*
   - rich=13.*
   - pre-commit=3.*
@@ -46,4 +47,8 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
+      - compressai>=1.2.8
       - huggingface_hub>=0.21.0
+      # local editable prerequisite for the SAR training path
+      # verified against ../sarpyx @ 06971f0bef13fd14bf3e70f3da9165a2a66a2ae4:
+      # - -e ../sarpyx

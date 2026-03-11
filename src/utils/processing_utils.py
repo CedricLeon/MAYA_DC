@@ -1,5 +1,4 @@
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -27,8 +26,7 @@ def load_partitioned_dataframe(handler, attr_name):
     # Access private method to get store
     store = handler._load_store()
     if attr_name not in store.attrs:
-        log_info(f"No '{attr_name}' key found in Zarr attributes.")
-        sys.exit(1)
+        raise KeyError(f"No '{attr_name}' key found in Zarr attributes.")
 
     raw_data = store.attrs[attr_name]
 
@@ -52,13 +50,11 @@ def load_partitioned_dataframe(handler, attr_name):
     all_records = [record for idx, records in partitions for record in records]
 
     if not all_records:
-        log_info(f"No records found in {attr_name} partitions.")
-        sys.exit(1)
+        raise ValueError(f"No records found in {attr_name} partitions.")
     try:
         return pd.DataFrame(all_records)
     except Exception as e:
-        log_info(f"Error creating DataFrame from records for {attr_name}: {e}")
-        sys.exit(1)
+        raise ValueError(f"Error creating DataFrame from records for {attr_name}: {e}") from e
 
 
 def scan_available_data_extent(

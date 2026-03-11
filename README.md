@@ -59,6 +59,32 @@ Because we cannot process the complete image $A$ we manipulate it as *patches*, 
 
 This repository was jointly developed with other repositories, mainly MAYA4 and sarpyx that have been installed locally. This explains the `type: ignore` in imports.
 
+### SAR Training Setup
+
+The SAR training path assumes a local editable checkout of `sarpyx` next to this repository.
+The current repo state is verified against `../sarpyx` commit `06971f0bef13fd14bf3e70f3da9165a2a66a2ae4`.
+The minimum setup is:
+
+```bash
+uv venv .venv --python 3.12
+git -C ../sarpyx checkout 06971f0bef13fd14bf3e70f3da9165a2a66a2ae4
+uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python -e ../sarpyx
+./.venv/bin/python -m src.utils.sar_environment
+```
+
+Expected local dataset layout for the current datamodule:
+
+```text
+data/test_complete_download/
+  PT1/
+    *.zarr
+  PT2/
+    *.zarr
+  PT4/
+    *.zarr
+```
+
 ## Template README (Description)
 
 ***
