@@ -72,3 +72,31 @@ count_row = min(last_row_chunk * chunk_rows, full_rows)
 - **PyTorch Lightning**: Training loop abstraction.
 - **Sarpyx**: Internal/Library for SAR metadata and sensor models.
 - **Maya4**: Internal/Library used for loadeing the MAYA4 datasets.
+
+## Working with Documentation Files
+
+The project uses three living markdown files that must be kept up to date:
+
+### [`IMPLEMENTATION_SUMMARY.md`](../IMPLEMENTATION_SUMMARY.md)
+The technical memory of the project. Update it whenever:
+- A bug is fixed: add a `BUG N` or `FIX N` entry in the existing style.
+- A new feature is implemented: move it from the Future Features table to a new `IMPROVE N` entry.
+- A design decision is made: add a note to the **Design Notes** section.
+- A new planned feature is identified: add a row to the **Future Features** table (F1–FN).
+
+### [`QUICKSTART.md`](../QUICKSTART.md)
+The operator's reference. Update it whenever:
+- A command changes or a new entry point is added.
+- A config parameter is added, renamed, or its default changes.
+- A key file is added or removed from the project layout.
+
+### [`progress_tracking.md`](../progress_tracking.md)
+**Maintained by the user.** Do not rewrite sections or restructure this file.
+You may only:
+- Check off a `[ ]` item to `[x]` when the user confirms a task is done.
+- Add a new `- [ ]` item if the user explicitly asks for it.
+
+### General rule
+After any non-trivial code change, update the relevant section of
+`IMPLEMENTATION_SUMMARY.md` in the same response. Do not defer documentation to
+a separate step.
