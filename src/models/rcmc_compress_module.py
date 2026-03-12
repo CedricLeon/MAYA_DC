@@ -164,22 +164,21 @@ class RCMCDCmodule(lightning.LightningModule):
 
         self.manual_backward(criterion["loss"])
 
-        # # DEBUG: check for null/zero gradients after backward — remove once confirmed working.
-        # # NOTE: params ending in '.quantiles' are intentionally NULL here — they belong to
-        # # the aux optimizer and only receive gradients from manual_backward(aux_loss) below.
-        # null_grad, zero_grad = [], []
-        # for name, p in self.net.named_parameters():
-        #     if p.requires_grad and not name.endswith(".quantiles"):
-        #         if p.grad is None:
-        #             null_grad.append(name)
-        #         elif p.grad.abs().max() == 0:
-        #             zero_grad.append(name)
-        # if null_grad:
-        #     self.print(f"[grad-check] NULL grad ({len(null_grad)} params): {null_grad[:5]}")
-        # if zero_grad:
-        #     self.print(f"[grad-check] ZERO grad ({len(zero_grad)} params): {zero_grad[:5]}")
-        # if not null_grad and not zero_grad:
-        #     self.print("[grad-check] OK — all gradients non-null and non-zero")
+        # F5 — per-module gradient norm logging (raw norms, before clipping).
+        # Logged every step so per-step curves are available in WandB/TensorBoard.
+        for module_name in ("g_a", "g_s", "h_a", "h_s"):
+            module = getattr(self.net, module_name, None)
+            if module is not None:
+                norms = [p.grad.norm().item() for p in module.parameters() if p.grad is not None]
+                if norms:
+                    total_norm = torch.tensor(norms).norm().item()
+                    self.log(
+                        f"train/grad_norm_{module_name}",
+                        total_norm,
+                        on_step=True,
+                        on_epoch=False,
+                        prog_bar=False,
+                    )
 
         self.clip_gradients(
             net_optimizer,  # type: ignore[attr-defined]
