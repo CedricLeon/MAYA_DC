@@ -174,11 +174,33 @@ to gradients; without detach it dragged `ps.max()`/`ps.min()` into the graph.
 `2 * nb_channels_main` (the original behaviour).  Allows independent control
 of the hyper-prior latent space dimension.
 
-### IMPROVE 13 — Identity model validation script *(planned, not yet created)*
+### IMPROVE 13 — Azimuth pipeline validation script (F10)
 
-A `scripts/validate_azimuth_pipeline.py` is referenced in QUICKSTART but not yet
-implemented.  It would load a zarr patch, run identity (FFT/IFFT) and the
-standalone sarpyx filter, and compare both against the ground-truth SLC.
+**File:** `scripts/validate_azimuth_pipeline.py`
+**Change:** Created a standalone comparison script with no network involved.
+Loads the same RCMC patch and compares three results side-by-side:
+
+- **GT SLC** — the `az` product from the MAYA4 zarr (ground truth).
+- **CoarseRDA** — the full sarpyx `CoarseRDA` processor (reference algorithm).
+- **Custom FFT** — `full_azimuth_compress_batch` from
+  `src/utils/sarpyx_azimuth_compression.py` (no network, same code path as training).
+
+Metrics reported for each pair: complex correlation, magnitude correlation, PSNR [dB],
+SSIM.  Outputs two PNG plots: magnitude comparison and residual error maps.
+
+**Validation results** (`patch_az=3000, patch_rg=12000, patch_size=1024`):
+
+| Metric | CoarseRDA vs GT | Custom FFT (buf=512) vs GT | Custom FFT (buf=1024) vs GT |
+| :--- | ---: | ---: | ---: |
+| Complex corr | 1.0000 | 0.9761 | 0.9998 |
+| Magnitude corr | 1.0000 | 0.9574 | 0.9996 |
+| PSNR [dB] | 73.01 | 36.55 | 56.55 |
+| SSIM | 1.0000 | 0.9594 | 0.9995 |
+
+**Key finding:** `buffer=512` is insufficient (~97% correlation); `buffer=1024` gives
+>99.9% correlation and >56 dB PSNR.  The `azimuth_buffer` config default should be
+`1024` (or at minimum `512` is acceptable if memory is tight, but reconstruction
+quality is noticeably lower).
 
 ### IMPROVE 18 — Quality metrics at validation: complex correlation, PSNR, SSIM (F2, F3)
 
