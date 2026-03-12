@@ -89,12 +89,12 @@ tensorboard --logdir logs/
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `patch_size` | `[2048, 2048]` | Core patch size (azimuth, range) |
+| `patch_size` | `[512, 512]` | Core patch size (azimuth, range) |
 | `azimuth_buffer` | `512` | Buffer lines added on each side for azimuth focusing context |
-| `samples_per_prod` | `0` | Patches sampled per product per epoch (0 = all) |
+| `samples_per_prod` | `100` | Patches sampled per product per epoch (0 = all) |
 | `online` | `false` | Stream data from HuggingFace |
-| `max_products_train` | `500` | Max training products |
-| `max_products_val` | `50` | Max validation products |
+| `max_products_train` | `5` | Max training products |
+| `max_products_val` | `1` | Max validation products |
 | `batch_size` | `4` | Batch size |
 
 > **Divisibility constraint:** `patch_size[0] + 2 × azimuth_buffer` must be
@@ -110,8 +110,10 @@ tensorboard --logdir logs/
 | `nb_channels_main` | `128` | Feature channels N in the encoder/decoder |
 | `nb_channels_latent` | `null` | Latent dim M (null → 2 N) |
 | `activation` | `"gdn"` | Non-linearity (`"gdn"` or `"relu"`) |
-| `lmbda` | `0.01` | Rate-distortion trade-off λ |
-| `loss_type` | `"mse"` | Loss class (`"mse"`, `"compound"`) |
+| `lmbda` | `1.0` | Rate-distortion trade-off λ |
+| `delta_kde` | `1.0` | Weight for KDE distribution term |
+| `delta_coherence` | `1.0` | Weight for phase coherence term |
+| `azimuth_buffer` | `512` | Must match `data.azimuth_buffer` |
 
 ---
 
@@ -129,7 +131,6 @@ src/
       scale_hyperprior.py         ← NIC model
       losses.py                   ← loss functions
   utils/
-    azimuth_compression.py        ← identity azimuth compression (FFT→IFFT)
     sarpyx_azimuth_compression.py ← differentiable azimuth compression;
                                      H computed in numpy (CoarseRDA maths),
                                      applied via torch.fft — gradients flow
@@ -143,3 +144,10 @@ configs/
   model/rcmc_compress.yaml
   experiment/rcmc_compress_baseline.yaml
 ```
+
+---
+
+## 📋 See Also
+
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — full bug-fix history, design notes, and **future features list** (F1–F12)
+- [progress_tracking.md](progress_tracking.md) — high-level research TODO list (maintained by user)
