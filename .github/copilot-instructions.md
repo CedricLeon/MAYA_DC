@@ -1,7 +1,8 @@
 # MAYA_DC: AI Coding Assistant Instructions
 
-Every command that require packages should be run inside the `MAYA_DC` conda environment.
-Prefer calling once `conda activate MAYA_DC` and then running all commands, instead of prefixing each command with `conda run -n MAYA_DC`.
+## Agent instructions
+- Before answering, wrap your step-by-step reasoning inside <thinking> tags.
+- Never use jargon. Never write sentences above 20 words. Never assume technical knowledge.
 
 ## Project Context
 **MAYA_DC** (Early Compression of SAR Data Pre-Focusing) implements Neural Image Compression (NIC) on Range Cell Migration Corrected (RCMC) SAR data.
@@ -25,7 +26,7 @@ The codebase is a hybrid of deep learning (PyTorch Lightning + Hydra) and signal
       - Local packages used for the projects are stored in `Maya4/` (MAYA4) and `srp/` (sarpyx).
 
 ## Critical Workflows & Commands
-*All commands should be run in the conda environment*.
+*Every command that require packages should be run inside the `MAYA_DC` conda environment.*
 - **Training**:
     ```bash
     python src/train.py experiment=example
