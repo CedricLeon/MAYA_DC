@@ -112,10 +112,10 @@ class MonitorValReconstruction(Callback):
 
         # ── Unpack batch ──────────────────────────────────────────────
         if len(batch) == 5:
-            rcmc_batch, slc_batch, metadata_list, ephemeris_list, _ = batch
+            rcmc_batch, slc_batch, metadata_list, ephemeris_list, coords_list = batch
         elif len(batch) == 2:
             rcmc_batch, slc_batch = batch
-            metadata_list, ephemeris_list = None, None
+            metadata_list, ephemeris_list, coords_list = None, None, None
         else:
             raise ValueError(f"Unexpected batch length {len(batch)}, expected 2 or 5")
 
@@ -139,6 +139,7 @@ class MonitorValReconstruction(Callback):
                 ephemeris_list,
                 buffer_size=buffer,
                 device=str(output.x_hat.device),
+                coords_batch=coords_list,
             )  # (B, 2, Az_core, Rg)  — physical SLC scale
 
         # ── Trim azimuth buffer; denormalize to physical scale ────────
@@ -169,14 +170,32 @@ class MonitorValReconstruction(Callback):
                 title=f"[MonitorValReconstruction] Epoch {trainer.current_epoch} — patch 0 logI stats",
             )
 
+        # ── Physical SLC min/max (F1: scale explosion diagnostics) ────────
+        slc_r_min = float(slc_recon[:n].abs().min().cpu())
+        slc_r_max = float(slc_recon[:n].abs().max().cpu())
+        slc_t_min = float(slc_target_core[:n].abs().min().cpu())
+        slc_t_max = float(slc_target_core[:n].abs().max().cpu())
+        scale_info = (
+            f"SLC recon |·| ∈ [{slc_r_min:.3e}, {slc_r_max:.3e}]   "
+            f"SLC target |·| ∈ [{slc_t_min:.3e}, {slc_t_max:.3e}]"
+        )
+
         # ── Build figure ──────────────────────────────────────────────
-        fig, axes = plt.subplots(4, n, figsize=(4 * n, 16), squeeze=False)
+        # Extra width per column to accommodate per-image colorbars
+        fig, axes = plt.subplots(4, n, figsize=(5 * n, 16), squeeze=False)
 
         for row_idx, (row_title, row_tensor) in enumerate(zip(_ROW_TITLES, rows_data)):
-            for col_idx in range(n):
-                img_np = _clip_mean_std(row_tensor[col_idx].cpu().numpy(), self.clip_factor)
+            # Pre-compute clipped images to get a shared vmin/vmax for this row
+            row_imgs = [
+                _clip_mean_std(row_tensor[col_idx].cpu().numpy(), self.clip_factor)
+                for col_idx in range(n)
+            ]
+            row_vmin = float(min(img.min() for img in row_imgs))
+            row_vmax = float(max(img.max() for img in row_imgs))
+
+            for col_idx, img_np in enumerate(row_imgs):
                 ax = axes[row_idx, col_idx]
-                ax.imshow(img_np, cmap="gray", aspect="auto")
+                im = ax.imshow(img_np, cmap="gray", aspect="auto", vmin=row_vmin, vmax=row_vmax)
                 ax.axis("off")
                 if col_idx == 0:
                     # Row label on the left
@@ -193,6 +212,9 @@ class MonitorValReconstruction(Callback):
                     )
                 if row_idx == 0:
                     ax.set_title(f"Patch {col_idx}", fontsize=9)
+                # Per-image colorbar (steals space from this axes only)
+                cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                cbar.ax.tick_params(labelsize=6)
 
         # ── Summary metrics for the figure title ──────────────────────
         # MSE in logI between SLC recon and SLC target (rows 2 & 3)
@@ -202,8 +224,9 @@ class MonitorValReconstruction(Callback):
 
         fig.suptitle(
             f"Validation epoch {trainer.current_epoch} — "
-            f"SLC logI MSE: {mse_slc:.4f}   RCMC logI MAE: {mae_rcmc:.4f}",
-            fontsize=11,
+            f"SLC logI MSE: {mse_slc:.4f}   RCMC logI MAE: {mae_rcmc:.4f}\n"
+            f"{scale_info}",
+            fontsize=10,
         )
         plt.tight_layout()
 
@@ -220,6 +243,8 @@ class MonitorValReconstruction(Callback):
                     "val_reconstructions": wandb.Image(fig),
                     "val_batch/slc_log_mse": mse_slc,
                     "val_batch/rcmc_log_mae": mae_rcmc,
+                    "val_batch/slc_recon_phys_max": slc_r_max,
+                    "val_batch/slc_target_phys_max": slc_t_max,
                 },
                 step=trainer.global_step,
             )
