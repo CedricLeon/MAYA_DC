@@ -8,13 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-# Import sarpyx loss functions
-try:
-    from sarpyx.utils.sar_loss import coherence_loss as sarpyx_coherence_loss
-
-    SARPYX_AVAILABLE = True
-except ImportError:
-    SARPYX_AVAILABLE = False
+from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
 
 
 def complex_coherence_loss(pred: Tensor, target: Tensor) -> Tensor:
@@ -49,72 +43,104 @@ def complex_coherence_loss(pred: Tensor, target: Tensor) -> Tensor:
     return 1.0 - coherence
 
 
-def kde_histogram_loss(pred: Tensor, target: Tensor, num_bins: int = 100) -> Tensor:
-    """KDE-based distribution matching loss.
-
-    Uses Gaussian kernel density estimation to compare the distributions
-    of predicted and target magnitudes.
+def _gaussian_kde(samples: Tensor, eval_points: Tensor, bandwidth: Tensor) -> Tensor:
+    """Differentiable Gaussian kernel density estimate.
 
     Args:
-        pred: Predicted SAR image (B, C, H, W)
-        target: Target SAR image (B, C, H, W)
-        num_bins: Number of evaluation points for KDE
+        samples:     Flat sample values ``[N]``.
+        eval_points: Grid to evaluate the KDE on ``[M]``.
+        bandwidth:   KDE bandwidth (scalar tensor).
 
     Returns:
-        Scalar tensor representing distribution loss
+        Density estimates at ``eval_points``, shape ``[M]``.
+    """
+    ep = eval_points.view(-1, 1)  # [M, 1]
+    s = samples.view(1, -1)  # [1, N]
+
+    z = ((ep - s) / bandwidth) ** 2 / 2.0  # [M, N]
+
+    gaussian_const = 1.0 / torch.sqrt(
+        torch.tensor(2.0 * math.pi, dtype=ep.dtype, device=ep.device)
+    )
+    kernel = gaussian_const * torch.exp(-z)  # [M, N]
+
+    return kernel.sum(dim=1) / (s.shape[1] * bandwidth)  # [M]
+
+
+def kde_histogram_loss(pred: Tensor, target: Tensor, num_bins: int = 100) -> Tensor:
+    """Differentiable KDE-based distribution matching loss.
+
+    Computes the L1 distance between the Gaussian KDEs of ``pred`` and
+    ``target`` magnitudes using Scott's bandwidth rule.  All operations are
+    PyTorch-native, so gradients flow through the KDE computation.
+
+    Ported from ``MultiDomainSARLoss._histogram_l1_loss`` in
+    ``srp/sarpyx/utils/losses.py``.
+
+    Args:
+        pred:     Predicted SAR image ``(B, 2, H, W)`` real/imag channels.
+        target:   Target SAR image ``(B, 2, H, W)``.
+        num_bins: Number of evaluation points for the KDE (default 100).
+
+    Returns:
+        Scalar L1 distance between KDEs, averaged over the batch.
     """
     # Convert to magnitude
     if torch.is_complex(pred):
         pred_mag = pred.abs()
         target_mag = target.abs()
     elif pred.shape[1] == 2:
-        pred_mag = torch.sqrt(pred[:, 0, :, :] ** 2 + pred[:, 1, :, :] ** 2 + 1e-8)
-        target_mag = torch.sqrt(target[:, 0, :, :] ** 2 + target[:, 1, :, :] ** 2 + 1e-8)
+        pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + 1e-8)
+        target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + 1e-8)
     else:
         pred_mag = pred.abs()
         target_mag = target.abs()
 
-    # Flatten
     B = pred_mag.shape[0]
-    pred_flat = pred_mag.reshape(B, -1)
-    target_flat = target_mag.reshape(B, -1)
+    pred_flat = pred_mag.view(B, -1)
+    target_flat = target_mag.view(B, -1)
 
     total_loss = torch.tensor(0.0, device=pred.device)
 
     for b in range(B):
-        pred_samples = pred_flat[b]
-        target_samples = target_flat[b]
+        ps = pred_flat[b]
+        ts = target_flat[b]
 
-        # Automatic bandwidth selection using Scott's rule
-        n_pred = pred_samples.numel()
-        n_target = target_samples.numel()
-        h_pred = n_pred ** (-1.0 / 5.0) * pred_samples.std()
-        h_target = n_target ** (-1.0 / 5.0) * target_samples.std()
-        h = (h_pred + h_target) / 2.0
+        # Scott's rule: h = std * n^(-1/5)
+        h_p = (ps.std() + 1e-8) * (ps.numel() ** (-0.2))
+        h_t = (ts.std() + 1e-8) * (ts.numel() ** (-0.2))
+        h = (h_p + h_t) / 2.0
 
-        # Create evaluation grid
-        min_val = min(pred_samples.min(), target_samples.min())
-        max_val = max(pred_samples.max(), target_samples.max())
-        eval_points = torch.linspace(min_val, max_val, num_bins, device=pred.device)
+        # Evaluation grid covering both distributions + 10 % margin
+        lo = torch.min(ps.min(), ts.min())
+        hi = torch.max(ps.max(), ts.max())
+        margin = (hi - lo) * 0.1
+        eval_pts = torch.linspace(
+            (lo - margin).item(),
+            (hi + margin).item(),
+            num_bins,
+            device=pred.device,
+        )
 
-        # Compute KDE for both distributions
-        def gaussian_kde(samples, eval_pts, bandwidth):
-            # Compute Gaussian kernel for all samples at all evaluation points
-            # Shape: (num_samples, num_eval_points)
-            diff = samples.unsqueeze(1) - eval_pts.unsqueeze(0)
-            kernel = torch.exp(-0.5 * (diff / (bandwidth + 1e-8)) ** 2)
-            # Normalize
-            density = kernel.sum(dim=0) / (samples.numel() * bandwidth * math.sqrt(2 * math.pi))
-            return density
+        pred_kde = _gaussian_kde(ps, eval_pts, h)
+        target_kde = _gaussian_kde(ts, eval_pts, h)
 
-        pred_density = gaussian_kde(pred_samples, eval_points, h)
-        target_density = gaussian_kde(target_samples, eval_points, h)
-
-        # L1 distance between densities
-        loss_b = torch.abs(pred_density - target_density).mean()
-        total_loss += loss_b
+        # Approximate L1 integral via trapezoidal sum
+        dx = (hi - lo + 2.0 * margin) / num_bins
+        total_loss = total_loss + torch.abs(pred_kde - target_kde).sum() * dx
 
     return total_loss / B
+
+
+def estimate_rate(output: ForwardOutput) -> Tensor:
+    """Compute the bitrate (rate) from the likelihoods estimnated by the model."""
+    N, _C, H, W = output.x_hat.shape
+    num_pixels = N * H * W
+
+    likelihoods = output.likelihoods
+    bpp_y = torch.log(likelihoods.y).sum() / (-math.log(2) * num_pixels)
+    bpp_z = torch.log(likelihoods.z).sum() / (-math.log(2) * num_pixels)
+    return bpp_y + bpp_z
 
 
 class CompoundSARLoss(nn.Module):
@@ -202,196 +228,21 @@ class CompoundCompressionLoss(nn.Module):
         self.lmbda = lmbda
         self.compound_loss = CompoundSARLoss(delta_kde, delta_coherence, num_kde_bins)
 
-    def forward(self, output: Dict[str, Tensor], target: Tensor) -> Dict[str, Any]:
-        """Compute compression loss with compound distortion.
+    def forward(self, output: ForwardOutput, target: Tensor) -> Dict[str, Any]:
+        """Compute compression loss with compound distortion that returns a dictionary of
+        components."""
+        rate = estimate_rate(output)
+        distortion_dict = self.compound_loss(output.x_hat, target)
 
-        Args:
-            output: Dictionary from compression model containing:
-                - "x_hat": Reconstructed data
-                - "likelihoods": Dictionary with "y" and "z" likelihoods
-            target: Target image
-
-        Returns:
-            Dictionary with loss components
-        """
-        # Rate term
-        N, C, H, W = output["x_hat"].shape
-        num_pixels = N * H * W
-
-        likelihoods = output.get("likelihoods", {})
-        if likelihoods and "y" in likelihoods:
-            bpp_y = torch.log(likelihoods["y"]).sum() / (-math.log(2) * num_pixels)
-            bpp_z = torch.log(likelihoods["z"]).sum() / (-math.log(2) * num_pixels)
-            rate = bpp_y + bpp_z
-        else:
-            rate = torch.tensor(0.0, device=output["x_hat"].device)
-
-        # Compound distortion term
-        distortion_dict = self.compound_loss(output["x_hat"], target)
-
-        # Combined loss
         loss = rate + self.lmbda * distortion_dict["loss"]
 
         return {
             "loss": loss,
-            "rate": rate.item() if isinstance(rate, Tensor) else rate,
+            "rate": rate.item(),
             "distortion": distortion_dict["loss"].item(),
             "mse": distortion_dict["mse"],
             "kde": distortion_dict["kde"],
             "coherence": distortion_dict["coherence"],
-            "bpp": rate.item() if isinstance(rate, Tensor) else rate,
-        }
-
-
-class CompressionLoss(nn.Module):
-    """Compression loss combining rate and distortion.
-
-    Loss = Rate + lambda * Distortion
-
-    where Rate is the expected bitstream length and Distortion measures reconstruction quality.
-    """
-
-    def __init__(
-        self,
-        lmbda: float = 0.01,
-        distortion_type: str = "mse",
-    ):
-        """Initialize compression loss.
-
-        Args:
-            lmbda: Rate-distortion tradeoff parameter (higher = more quality)
-            distortion_type: Type of distortion metric ("mse", "mae", or "compound")
-        """
-        super().__init__()
-        self.lmbda = lmbda
-        self.distortion_type = distortion_type
-
-    def forward(self, output: Dict[str, Tensor], target: Tensor) -> Dict[str, Any]:
-        """Compute compression loss.
-
-        Args:
-            output: Dictionary from compression model containing:
-                - "x_hat": Reconstructed RCMC data
-                - "likelihoods": Dictionary with "y" and "z" likelihoods
-            target: Target SLC image (after azimuth compression)
-
-        Returns:
-            Dictionary with loss components
-        """
-        # Rate loss: negative log-likelihood (bits per pixel)
-        N, C, H, W = output["x_hat"].shape
-        num_pixels = N * H * W
-
-        # Calculate rate from likelihoods
-        likelihoods = output["likelihoods"]
-        bpp_y = torch.log(likelihoods["y"]).sum() / (-math.log(2) * num_pixels)
-        bpp_z = torch.log(likelihoods["z"]).sum() / (-math.log(2) * num_pixels)
-        rate = bpp_y + bpp_z
-
-        # Distortion loss
-        if self.distortion_type == "mse":
-            distortion = F.mse_loss(output["x_hat"], target)
-        elif self.distortion_type == "mae":
-            distortion = F.l1_loss(output["x_hat"], target)
-        elif self.distortion_type == "compound":
-            # Compound loss will be implemented later
-            distortion = F.mse_loss(output["x_hat"], target)
-        else:
-            raise ValueError(f"Unknown distortion type: {self.distortion_type}")
-
-        # Combined loss
-        loss = rate + self.lmbda * distortion
-
-        return {
-            "loss": loss,
-            "rate": rate.item(),
-            "distortion": distortion.item(),
-            "bpp": (rate.item()),
-        }
-
-
-class RCMCCompressionLoss(nn.Module):
-    """Loss for RCMC compression that compares in SLC domain.
-
-    This loss:
-    1. Takes compressed/reconstructed RCMC data
-    2. Performs azimuth compression to get reconstructed SLC
-    3. Compares with target SLC
-    """
-
-    def __init__(
-        self,
-        lmbda: float = 0.01,
-        distortion_type: str = "mse",
-        azimuth_compression_fn: Any = None,
-    ):
-        """Initialize RCMC compression loss.
-
-        Args:
-            lmbda: Rate-distortion tradeoff
-            distortion_type: Distortion metric type
-            azimuth_compression_fn: Function to perform azimuth compression
-        """
-        super().__init__()
-        self.lmbda = lmbda
-        self.distortion_type = distortion_type
-        self.azimuth_compression_fn = azimuth_compression_fn
-
-    def forward(
-        self,
-        output: Dict[str, Tensor],
-        target_slc: Tensor,
-        metadata: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Compute loss in SLC domain.
-
-        Args:
-            output: Dictionary from compression model with "x_hat" (reconstructed RCMC)
-            target_slc: Ground truth SLC image
-            metadata: SAR metadata needed for azimuth compression
-
-        Returns:
-            Dictionary with loss components
-        """
-        import math
-
-        # Get reconstructed RCMC with buffer
-        rcmc_recon = output["x_hat"]
-
-        # Perform azimuth compression on reconstructed RCMC
-        if self.azimuth_compression_fn is not None:
-            slc_recon = self.azimuth_compression_fn(rcmc_recon, metadata)
-        else:
-            # Placeholder: simple azimuth FFT (not correct but avoids crash)
-            slc_recon = torch.fft.fft(rcmc_recon, dim=2).abs()
-
-        # Rate from likelihoods
-        N, C, H, W = rcmc_recon.shape
-        num_pixels = N * H * W
-
-        likelihoods = output.get("likelihoods", {})
-        if likelihoods:
-            bpp_y = torch.log(likelihoods["y"]).sum() / (-math.log(2) * num_pixels)
-            bpp_z = torch.log(likelihoods["z"]).sum() / (-math.log(2) * num_pixels)
-            rate = bpp_y + bpp_z
-        else:
-            rate = torch.tensor(0.0, device=rcmc_recon.device)
-
-        # Distortion in SLC domain
-        if self.distortion_type == "mse":
-            distortion = F.mse_loss(slc_recon, target_slc)
-        elif self.distortion_type == "mae":
-            distortion = F.l1_loss(slc_recon, target_slc)
-        else:
-            distortion = F.mse_loss(slc_recon, target_slc)
-
-        loss = rate + self.lmbda * distortion
-
-        return {
-            "loss": loss,
-            "rate": rate.item() if isinstance(rate, Tensor) else rate,
-            "distortion": distortion.item(),
-            "bpp": rate.item() if isinstance(rate, Tensor) else rate,
         }
 
 
@@ -410,38 +261,16 @@ class SimpleMSELoss(nn.Module):
         super().__init__()
         self.lmbda = lmbda
 
-    def forward(self, output: Dict[str, Tensor], target: Tensor) -> Dict[str, Any]:
-        """Compute simple MSE loss.
-
-        Args:
-            output: Dictionary with "x_hat" (reconstruction)
-            target: Target tensor
-
-        Returns:
-            Dictionary with loss components
-        """
-        import math
-
-        # MSE between reconstruction and target
-        mse = F.mse_loss(output["x_hat"], target)
-
-        # Rate from likelihoods if available
-        likelihoods = output.get("likelihoods", {})
-        if likelihoods and "y" in likelihoods:
-            N, C, H, W = output["x_hat"].shape
-            num_pixels = N * H * W
-            bpp_y = torch.log(likelihoods["y"]).sum() / (-math.log(2) * num_pixels)
-            bpp_z = torch.log(likelihoods["z"]).sum() / (-math.log(2) * num_pixels)
-            rate = bpp_y + bpp_z
-        else:
-            rate = torch.tensor(0.0, device=output["x_hat"].device)
+    def forward(self, output: ForwardOutput, target: Tensor) -> Dict[str, Any]:
+        """Compute simple MSE loss."""
+        rate = estimate_rate(output)
+        mse = F.mse_loss(output.x_hat, target)
 
         loss = rate + self.lmbda * mse
 
         return {
             "loss": loss,
-            "rate": rate.item() if isinstance(rate, Tensor) else rate,
+            "rate": rate.item(),
             "distortion": mse.item(),
             "mse": mse.item(),
-            "bpp": rate.item() if isinstance(rate, Tensor) else rate,
         }

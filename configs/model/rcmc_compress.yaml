@@ -18,8 +18,11 @@ model:
 
   # Loss function
   criterion:
-    _target_: src.models.components.losses.SimpleMSELoss
+    _target_: src.models.components.losses.CompoundCompressionLoss
     lmbda: 0.01  # Rate-distortion tradeoff
+    delta_kde: 0.1
+    delta_coherence: 0.1
+    num_kde_bins: 100
 
   # Azimuth compression
   azimuth_buffer: 512
