@@ -1,7 +1,7 @@
 # MAYA_DC — Implementation Summary
 
 **Date:** March 2026
-**Status:** ✅ Pipeline implemented, bugs fixed, ready for training
+**Status:** ✅ Pipeline implemented and gradient-verified (10-epoch run, no null/zero grads). Loss convergence is the active open problem.
 
 ---
 
@@ -40,9 +40,8 @@ RCMC (B,2,Az+2·buf,Rg)
 | `src/models/components/scale_hyperprior.py` | NIC model (CompressAI ScaleHyperprior, 2-channel SAR input) |
 | `src/models/components/losses.py` | `SimpleMSELoss`, `CompoundCompressionLoss`, `CompoundSARLoss`; helpers: `estimate_likelihoods_bpp`, `kde_histogram_loss`, `complex_coherence_loss` |
 | `src/utils/azimuth_compression.py` | Identity azimuth compression (FFT→IFFT, preserves phase) |
-| `src/utils/sarpyx_azimuth_compression.py` | Full sarpyx CoarseRDA compression for batches |
+| `src/utils/sarpyx_azimuth_compression.py` | Standalone differentiable azimuth compression; filter H computed in numpy (mirrors CoarseRDA math), applied via `torch.fft` so gradients flow back through the decoder |
 | `scripts/sarpyx_azimuth_compression.py` | Stand-alone sarpyx validation script |
-| `scripts/validate_azimuth_pipeline.py` | Pipeline validation: identity vs sarpyx vs GT SLC |
 | `configs/data/maya4.yaml` | Hydra data config |
 | `configs/model/rcmc_compress.yaml` | Hydra model config |
 | `configs/experiment/rcmc_compress_baseline.yaml` | Baseline experiment config |
@@ -127,6 +126,28 @@ new 5-tuple batch format.
 `B,_,Hy,Wy = likelihoods["y"].shape; num_pixels = B*(Hy*16)*(Wy*16)` to
 recover the RCMC input pixel count by undoing the 16× encoder downsampling.
 
+### BUG 15 — Zero gradient to `g_s` decoder (CoarseRDA numpy break)
+**File:** `src/utils/sarpyx_azimuth_compression.py`
+**Fix:** Replaced the CoarseRDA-based numpy loop with a standalone implementation.
+The azimuth filter H is computed in numpy/scipy (same maths as CoarseRDA, but
+no full processor instantiation), converted to a constant torch tensor, and
+applied via `torch.fft` / `torch.fft.ifft`. The data path (`FFT(x̂) × H → IFFT`)
+stays entirely in PyTorch so `d(SLC)/d(x̂) = IFFT(H)` is propagated correctly.
+`torch.view_as_complex` / `torch.view_as_real` are used instead of
+`torch.complex()` / `.real`/`.imag` for reliable autograd across non-contiguous
+channel slices.
+
+### BUG 16 — `[grad-check]` false alarm on `entropy_bottleneck.quantiles`
+**File:** `src/models/rcmc_compress_module.py`
+**Fix:** Params ending in `.quantiles` are intentionally skipped in the grad-check
+loop — they belong to `aux_optimizer` and only receive gradients from
+`manual_backward(aux_loss)`, never from `criterion["loss"]`.
+
+### BUG 17 — Spurious gradient through `dx` in `kde_histogram_loss`
+**File:** `src/models/components/losses.py`
+**Fix:** `dx = (...).detach()` — the bin-width constant should not contribute
+to gradients; without detach it dragged `ps.max()`/`ps.min()` into the graph.
+
 ---
 
 ## ✨ Improvements
@@ -137,13 +158,10 @@ recover the RCMC input pixel count by undoing the 16× encoder downsampling.
 `2 * nb_channels_main` (the original behaviour).  Allows independent control
 of the hyper-prior latent space dimension.
 
-### IMPROVE 13 — Identity model validation script
-**File:** `scripts/validate_azimuth_pipeline.py`
-**What it does:** Loads a single zarr patch with its metadata, runs it through
-both the identity compression (FFT/IFFT) and the full sarpyx CoarseRDA pipeline,
-and compares both against the ground-truth SLC using complex correlation and
-magnitude PSNR.  Validates that metadata plumbing, SWST range offset, and buffer
-handling are all correct.
+### IMPROVE 13 — Identity model validation script *(planned, not yet created)*
+A `scripts/validate_azimuth_pipeline.py` is referenced in QUICKSTART but not yet
+implemented.  It would load a zarr patch, run identity (FFT/IFFT) and the
+standalone sarpyx filter, and compare both against the ground-truth SLC.
 
 ---
 

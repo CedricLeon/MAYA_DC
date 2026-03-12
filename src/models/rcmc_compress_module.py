@@ -18,7 +18,7 @@ class RCMCDCmodule(lightning.LightningModule):
         RCMC (B,2,Az+2*buf,Rg)
             → ScaleHyperprior (compress + reconstruct)
             → x_hat (B,2,Az+2*buf,Rg)
-            → full_azimuth_compress_batch  (sarpyx CoarseRDA)
+            → full_azimuth_compress_batch  (standalone torch FFT, differentiable)
             → SLC_recon (B,2,Az,Rg)
             → loss(SLC_recon, SLC_target)
     """
@@ -164,20 +164,22 @@ class RCMCDCmodule(lightning.LightningModule):
 
         self.manual_backward(criterion["loss"])
 
-        # DEBUG: check for null/zero gradients after backward — remove once confirmed working
-        null_grad, zero_grad = [], []
-        for name, p in self.net.named_parameters():
-            if p.requires_grad:
-                if p.grad is None:
-                    null_grad.append(name)
-                elif p.grad.abs().max() == 0:
-                    zero_grad.append(name)
-        if null_grad:
-            self.print(f"[grad-check] NULL grad ({len(null_grad)} params): {null_grad[:5]}")
-        if zero_grad:
-            self.print(f"[grad-check] ZERO grad ({len(zero_grad)} params): {zero_grad[:5]}")
-        if not null_grad and not zero_grad:
-            self.print("[grad-check] OK — all gradients non-null and non-zero")
+        # # DEBUG: check for null/zero gradients after backward — remove once confirmed working.
+        # # NOTE: params ending in '.quantiles' are intentionally NULL here — they belong to
+        # # the aux optimizer and only receive gradients from manual_backward(aux_loss) below.
+        # null_grad, zero_grad = [], []
+        # for name, p in self.net.named_parameters():
+        #     if p.requires_grad and not name.endswith(".quantiles"):
+        #         if p.grad is None:
+        #             null_grad.append(name)
+        #         elif p.grad.abs().max() == 0:
+        #             zero_grad.append(name)
+        # if null_grad:
+        #     self.print(f"[grad-check] NULL grad ({len(null_grad)} params): {null_grad[:5]}")
+        # if zero_grad:
+        #     self.print(f"[grad-check] ZERO grad ({len(zero_grad)} params): {zero_grad[:5]}")
+        # if not null_grad and not zero_grad:
+        #     self.print("[grad-check] OK — all gradients non-null and non-zero")
 
         self.clip_gradients(
             net_optimizer,  # type: ignore[attr-defined]

@@ -9,9 +9,6 @@
 ```bash
 conda activate MAYA_DC
 
-# Validate the sarpyx pipeline on a local zarr product
-python scripts/validate_azimuth_pipeline.py --input_file data/PT4/<product>.zarr --az_start 3000 --rg_start 5000 --patch_az 512 --azimuth_buffer 128
-
 # Start training
 python src/train.py experiment=rcmc_compress_baseline
 
@@ -86,43 +83,6 @@ tensorboard --logdir logs/
 
 ---
 
-## 🔬 Validate the Azimuth Pipeline
-
-Before training, verify that the sarpyx azimuth compression pipeline produces
-output that matches the ground-truth SLC stored in the zarr product:
-
-```bash
-python scripts/validate_azimuth_pipeline.py \
-    --input_file data/PT4/<product>.zarr \
-    --az_start 3000 \
-    --rg_start 5000 \
-    --patch_az 512 \
-    --patch_rg 512 \
-    --azimuth_buffer 128 \
-    --vis_dir logs/visualizations/validate_pipeline
-```
-
-**Expected output:**
-
-```
-============================================================
-  AZIMUTH PIPELINE VALIDATION RESULTS
-============================================================
-  Method                   Complex Corr    Mag PSNR (dB)
-  ------------------------ --------------  --------------
-  Identity (FFT→IFFT)            0.12xx           xx.xx
-  Sarpyx (CoarseRDA)             0.8xxx           xx.xx
-============================================================
-
-  ✓ Sarpyx significantly outperforms identity – matched filter is working.
-```
-
-Sarpyx should show substantially higher complex correlation than the identity
-(FFT/IFFT) path.  If not, check that the SWST range offset is being applied
-correctly and that the zarr product has its metadata populated.
-
----
-
 ## ⚙️ Key Config Parameters
 
 ### `configs/data/maya4.yaml` (and experiment overrides)
@@ -169,11 +129,13 @@ src/
       scale_hyperprior.py         ← NIC model
       losses.py                   ← loss functions
   utils/
-    azimuth_compression.py        ← identity azimuth compression
-    sarpyx_azimuth_compression.py ← full sarpyx CoarseRDA batch wrapper
+    azimuth_compression.py        ← identity azimuth compression (FFT→IFFT)
+    sarpyx_azimuth_compression.py ← differentiable azimuth compression;
+                                     H computed in numpy (CoarseRDA maths),
+                                     applied via torch.fft — gradients flow
+                                     back through the decoder
 
 scripts/
-  validate_azimuth_pipeline.py    ← pipeline validation (identity vs sarpyx vs GT)
   sarpyx_azimuth_compression.py   ← stand-alone sarpyx compression demo
 
 configs/
