@@ -6,8 +6,16 @@ from compressai.models import CompressionModel
 from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN, minmax_inverse, minmax_normalize
 from torch import Tensor
 
+from src.models.components.losses import (
+    complex_correlation_metric,
+    psnr_magnitude,
+    ssim_magnitude,
+)
 from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
-from src.utils.sarpyx_azimuth_compression import full_azimuth_compress_batch
+from src.utils.sarpyx_azimuth_compression import (
+    _FILTER_CACHE,
+    full_azimuth_compress_batch,
+)
 
 
 class RCMCDCmodule(lightning.LightningModule):
@@ -92,7 +100,7 @@ class RCMCDCmodule(lightning.LightningModule):
     # ------------------------------------------------------------------
     def _extract_from_batch(
         self, batch
-    ) -> Tuple[Tensor, Tensor, Tensor, Optional[List], Optional[List]]:
+    ) -> Tuple[Tensor, Tensor, Tensor, Optional[List], Optional[List], Optional[List]]:
         """Unpack a batch and extract model inputs and targets.
 
         The datamodule yields::
@@ -109,10 +117,11 @@ class RCMCDCmodule(lightning.LightningModule):
             rcmc_target:    ``(B, 2, Az, Rg)``        - RCMC core (for RCMC-domain loss)
             metadata_list:  list of DataFrames or None
             ephemeris_list: list of DataFrames or None
+            coords_list:    list of ``{"zfile", "y", "x"}`` dicts or None (F7)
         """
         # Support both old 2-tuple batches and the new 5-tuple format
         if len(batch) == 5:
-            rcmc_batch, slc_batch, metadata_list, ephemeris_list, _coords = batch
+            rcmc_batch, slc_batch, metadata_list, ephemeris_list, coords_list = batch
         else:
             raise ValueError(f"Unexpected batch length {len(batch)}, expected 2 or 5")
 
@@ -123,10 +132,17 @@ class RCMCDCmodule(lightning.LightningModule):
         rcmc_target = rcmc_batch[:, :, buffer : buffer + Az_core, :]
         slc_target = slc_batch[:, :, buffer : buffer + Az_core, :]
 
-        return rcmc_batch, slc_target, rcmc_target, metadata_list, ephemeris_list
+        return rcmc_batch, slc_target, rcmc_target, metadata_list, ephemeris_list, coords_list
 
-    def forward_with_az_compression(self, batch: Tensor) -> Any:
-        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list = (
+    def forward_with_az_compression(self, batch) -> Tuple[Dict[str, Any], Tensor, Tensor]:
+        """Full forward pass including azimuth compression.
+
+        Returns:
+            loss_dict:   Output of the criterion (keys: ``loss``, ``rate``, ...).
+            slc_recon:   Reconstructed SLC, normalised, shape ``(B, 2, Az, Rg)``.
+            slc_target:  Ground-truth SLC, normalised, shape ``(B, 2, Az, Rg)``.
+        """
+        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list, coords_list = (
             self._extract_from_batch(batch)
         )
 
@@ -142,18 +158,19 @@ class RCMCDCmodule(lightning.LightningModule):
             ephemeris_list,
             buffer_size=self.hparams.azimuth_buffer,  # type: ignore[attr-defined]
             device=str(output.x_hat.device),
+            coords_batch=coords_list,
         )
-        # renormalize the reconstructed SLC for loss computation (criterion may expect normalized inputs)
+        # Renormalize the reconstructed SLC for loss computation.
         slc_recon = minmax_normalize(slc_recon_denorm, GT_MIN, GT_MAX)
 
-        # Loss: compare reconstructed SLC to ground-truth SLC
         criterion_input = ForwardOutput(x_hat=slc_recon, likelihoods=output.likelihoods)
-        return self.criterion(criterion_input, slc_target)
+        loss_dict = self.criterion(criterion_input, slc_target)
+        return loss_dict, slc_recon, slc_target
 
     # ------------------------------------------------------------------
     def training_step(self, batch, batch_idx):
         """Full training step with manual optimization."""
-        criterion = self.forward_with_az_compression(batch)
+        criterion, _slc_recon, _slc_target = self.forward_with_az_compression(batch)
 
         # Main network backward
         optimizers = self.optimizers()
@@ -201,9 +218,25 @@ class RCMCDCmodule(lightning.LightningModule):
 
     # ------------------------------------------------------------------
     def validation_step(self, batch, batch_idx):
-        """Validation step also with azimuth compression."""
-        criterion = self.forward_with_az_compression(batch)
+        """Validation step with azimuth compression and quality metrics (F2, F3)."""
+        criterion, slc_recon, slc_target = self.forward_with_az_compression(batch)
         self._log_metrics("valid", criterion, self.net.aux_loss().item())
+
+        # Quality metrics — computed on detached tensors (no-grad context from Lightning)
+        corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
+        psnr = psnr_magnitude(slc_recon, slc_target)
+        ssim = ssim_magnitude(slc_recon, slc_target)
+        self.log_dict(
+            {
+                "valid/complex_corr_mean": corr_mean,
+                "valid/complex_corr_std": corr_std,
+                "valid/psnr_mag": psnr,
+                "valid/ssim_mag": ssim,
+            },
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
 
     # ------------------------------------------------------------------
     def on_test_epoch_start(self) -> None:
@@ -212,10 +245,41 @@ class RCMCDCmodule(lightning.LightningModule):
         self.net.update(force=True)
 
     def test_step(self, batch, batch_idx):
-        """Test step with likelihoods evaluation."""
-        # @TODO: transform this classic testing that uses likelihhods into a real testing that performs actual compression
-        criterion = self.forward_with_az_compression(batch)
+        """Test step with likelihoods evaluation and quality metrics (F2, F3)."""
+        # @TODO: transform this classic testing that uses likelihoods into real compression
+        criterion, slc_recon, slc_target = self.forward_with_az_compression(batch)
         self._log_metrics("test", criterion, self.net.aux_loss().item())
+
+        corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
+        psnr = psnr_magnitude(slc_recon, slc_target)
+        ssim = ssim_magnitude(slc_recon, slc_target)
+        self.log_dict(
+            {
+                "test/complex_corr_mean": corr_mean,
+                "test/complex_corr_std": corr_std,
+                "test/psnr_mag": psnr,
+                "test/ssim_mag": ssim,
+            },
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+    # ------------------------------------------------------------------
+    def on_train_epoch_end(self) -> None:
+        """Log the azimuth filter cache size after each training epoch (F7)."""
+        n_entries = len(_FILTER_CACHE)
+        # Each entry is a complex128 array; report approximate MB.
+        if n_entries > 0:
+            sample = next(iter(_FILTER_CACHE.values()))
+            mb_per_entry = sample.nbytes / 1024**2
+            total_mb = n_entries * mb_per_entry
+        else:
+            total_mb = 0.0
+        print(
+            f"[F7 filter cache] epoch {self.current_epoch}: "
+            f"{n_entries} entries, ~{total_mb:.0f} MB"
+        )
 
     # ------------------------------------------------------------------
     def on_validation_epoch_end(self) -> None:

@@ -20,7 +20,7 @@ Filter computation subfunctions mirror CoarseRDA methods in
 """
 
 import math
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -34,6 +34,17 @@ from sarpyx.processor.core.constants import (
 )
 from scipy.interpolate import interp1d
 from torch import Tensor
+
+# ---------------------------------------------------------------------------
+# Filter cache (F7)
+# Keyed on (zfile, x_patch, len_az_line, len_range_line).
+# Avoids recomputing the same numpy filter every forward pass for the same
+# patch — the filter depends only on orbit geometry and sensor timing, which
+# are constant across epochs.
+# ---------------------------------------------------------------------------
+
+_FILTER_CACHE: Dict[Tuple[str, int, int, int], np.ndarray] = {}
+
 
 # ---------------------------------------------------------------------------
 # Filter computation helpers
@@ -256,6 +267,7 @@ def full_azimuth_compress_batch(
     ephemeris_batch: Any,
     buffer_size: int = 500,
     device: Any = "cpu",
+    coords_batch: Optional[Any] = None,
 ) -> Tensor:
     """Azimuth-focus a batch of RCMC patches, preserving torch gradients.
 
@@ -263,6 +275,8 @@ def full_azimuth_compress_batch(
 
     1. ``compute_azimuth_filter`` builds constant filter ``H`` from metadata
        and ephemeris (numpy/scipy — no CoarseRDA instantiation).
+       When ``coords_batch`` is provided, results are cached in
+       ``_FILTER_CACHE`` keyed on ``(zfile, x, Az, Rg)`` (F7).
     2. The radar data path stays entirely in PyTorch:
        ``FFT_az(x) → ×H → IFFT_az`` — gradients flow back through ``x``.
     3. The azimuth buffer is stripped and real/imag channels are returned.
@@ -278,6 +292,10 @@ def full_azimuth_compress_batch(
         ephemeris_batch: List of per-item ephemeris DataFrames (length B).
         buffer_size:     Azimuth buffer samples to strip from each side.
         device:          Target device for the output tensor.
+        coords_batch:    Optional list of ``{"zfile": str, "y": int, "x": int}``
+                         dicts (length B).  When provided, filters are cached
+                         in ``_FILTER_CACHE`` keyed on
+                         ``(zfile, x, len_az, len_rg)``.
 
     Returns:
         SLC tensor ``(B, 2, Az, Rg)`` on ``device``, with gradients if
@@ -303,9 +321,21 @@ def full_azimuth_compress_batch(
         meta = metadata_batch[b] if isinstance(metadata_batch, list) else metadata_batch
         eph = ephemeris_batch[b] if isinstance(ephemeris_batch, list) else ephemeris_batch
 
+        # F7 — cache lookup keyed on (zfile, x_patch, Az, Rg).
+        cache_key: Optional[Tuple[str, int, int, int]] = None
+        if coords_batch is not None:
+            coords = coords_batch[b] if isinstance(coords_batch, list) else coords_batch
+            cache_key = (str(coords.get("zfile", "")), int(coords.get("x", -1)), Az, Rg)
+
+        if cache_key is not None and cache_key in _FILTER_CACHE:
+            H_np = _FILTER_CACHE[cache_key]
+        else:
+            H_np = compute_azimuth_filter(meta, eph, Az, Rg)  # (Az, Rg) complex128
+            if cache_key is not None:
+                _FILTER_CACHE[cache_key] = H_np
+
         # H is a constant w.r.t. radar data → torch.from_numpy has no grad_fn.
         # Multiplying X[b] (which has grad_fn) by H keeps the gradient path open.
-        H_np = compute_azimuth_filter(meta, eph, Az, Rg)  # (Az, Rg) complex128
         H = torch.from_numpy(H_np).to(dtype=X.dtype, device=X.device)  # cast to match X
 
         slc_ffts.append(X[b] * H)  # (Az, Rg) — grad_fn preserved from X[b]

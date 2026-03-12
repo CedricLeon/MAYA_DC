@@ -221,6 +221,29 @@ quality is noticeably lower).
   `valid/complex_corr_mean`, `valid/complex_corr_std`, `valid/psnr_mag`, `valid/ssim_mag`
   (and the matching `test/` variants).
 
+### IMPROVE 20 — Colorbars + physical SLC value range in `MonitorValReconstruction` (F1)
+
+**File:** `src/callbacks/monitor_val_reconstruction.py`
+**Change:**
+
+- Each subplot row now uses a **shared `vmin`/`vmax`** across all columns (pre-computed
+  before `imshow`), so all patches in a row are on the same intensity scale.
+- A **per-row colorbar** is added to the right of each row via
+  `fig.colorbar(im_ref, ax=axes[row_idx, :], shrink=0.7, pad=0.02)`, giving a
+  precise logI value scale for each row type.
+- **Physical min/max** of `|slc_recon|` and `|slc_target|` (before log transform) are
+  computed and embedded in the figure `suptitle` (`SLC recon |·| ∈ [min, max]`) and
+  logged as `val_batch/slc_recon_phys_max` and `val_batch/slc_target_phys_max` to
+  WandB, enabling automatic detection of scale explosions across training.
+
+### IMPROVE 19 — Per-module gradient norm logging (F5)
+
+**File:** `src/models/rcmc_compress_module.py`
+**Change:** After `manual_backward(criterion["loss"])` and before `clip_gradients`,
+`training_step` now iterates over `g_a`, `g_s`, `h_a`, `h_s` and logs
+`train/grad_norm_<module>` (total L2 norm of all parameter gradients in that
+module) every step.  Logged pre-clip so the raw signal is preserved.
+
 ---
 
 ## 🏗 Data Flow Details
@@ -293,13 +316,28 @@ correct and intentional — do not change.
 for a planned future RCMC-domain loss term (compare `x_hat` directly to `rcmc_target`
 without azimuth compression).  This would allow training without metadata.
 
-### H filter recomputed every step
+### H filter cache (F7)
 
-`compute_azimuth_filter` is called once per batch item every forward pass.  The
-filter H depends only on `(zfile, x, Az, Rg)` and never changes across epochs.
-A `functools.lru_cache` on `compute_azimuth_filter` would eliminate all repeated
-computations at the cost of memory (one complex128 array of shape `(Az, Rg)` per
-unique key).  Deferred until the convergence problem is resolved.
+A module-level `_FILTER_CACHE: Dict[Tuple[str, int, int, int], np.ndarray]` is used
+in `sarpyx_azimuth_compression.py`.  The key is `(zfile, x_range_start, Az_total, Rg)`
+— note no azimuth start, because the matched filter depends only on range geometry.
+
+**Size estimate** (default settings `patch_az=512, buffer=1024 → Az_total=2560, Rg=512`):
+
+$$\text{per entry} = 2560 \times 512 \times 16\ \text{bytes (complex128)} \approx 20\ \text{MB}$$
+
+With `max_products = 6` and up to `samples_per_prod = 100` unique range positions per
+product, the worst-case cache is `6 × 100 × 20 MB ≈ 12 GB` — acceptable on the
+current machine (62 GB RAM, 36 GB used at peak).  The cache is an unbounded dict
+(plain Python `dict`, not `lru_cache`) because `pd.DataFrame` metadata is not
+hashable.  A `maxsize`-bounded LRU wrapper could be added later if memory becomes tight.
+
+`coords_list` is now fully wired: `_extract_from_batch` returns it, and both
+`forward_with_az_compression` and the `MonitorValReconstruction` callback pass it as
+`coords_batch` to `full_azimuth_compress_batch`.  On the first forward pass for a given
+`(zfile, x, Az, Rg)` the filter is computed and stored; all subsequent forward passes
+(including across epochs) retrieve it from the cache, eliminating the `compute_azimuth_filter`
+call entirely.
 
 ---
 
@@ -307,13 +345,9 @@ unique key).  Deferred until the convergence problem is resolved.
 
 | ID | Feature | Priority | Track |
 | :--- | :--- | :--- | :--- |
-| F1 | **Colorbars + value range in `MonitorValReconstruction`** — add per-row colorbars and print `[min, max]` of physical `slc_recon` vs `slc_target` to catch scale explosions | Medium | §Results generation |
 | F4 | **Rate–distortion scatter plot** — WandB custom chart of `valid/rate` vs `valid/distortion` over epochs | Medium | §Results generation |
-| F5 | **Per-module gradient norm logging** — log `‖∇ g_s‖`, `‖∇ g_a‖`, `‖∇ h_s‖` each step to diagnose stagnant modules | Low | §First experiments |
 | F6 | **`x_hat` histogram to WandB** — `wandb.Histogram(output.x_hat)` once per epoch to detect collapse or saturation | Low | §First experiments |
-| F7 | **H filter LRU cache** — `functools.lru_cache` on `compute_azimuth_filter` keyed on `(zfile, x, Az, Rg)` to avoid recomputing the same filter every epoch | Low | §Repository improvements |
 | F8 | **RCMC-domain loss** — compare `x_hat` (trimmed) to `rcmc_target` without azimuth compression; enables training on products without ephemeris | Medium | §Model architecture |
 | F9 | **Phase preservation metric** — dedicated `1 - \|mean(exp(j(φ_pred - φ_target)))\|` metric at validation/test, separate from coherence | Medium | §Quality metrics |
-| F10 | **Azimuth pipeline validation script** — `scripts/validate_azimuth_pipeline.py`: load a zarr patch, run standalone sarpyx filter vs GT SLC, log complex corr + PSNR | Medium | §Dataset validation, §Impl. verification |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |

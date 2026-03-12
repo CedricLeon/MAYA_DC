@@ -1,4 +1,4 @@
-"""Loss functions for SAR compression."""
+"""Loss functions and quality metrics for SAR compression."""
 
 import math
 from typing import Any, Dict, Tuple
@@ -7,8 +7,108 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from torchmetrics.functional.image import structural_similarity_index_measure as ssim_fn
 
 from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
+
+# ---------------------------------------------------------------------------
+# Quality metrics (no gradient required; used at validation / test time)
+# ---------------------------------------------------------------------------
+
+
+def complex_correlation_metric(pred: Tensor, target: Tensor) -> Tuple[Tensor, Tensor]:
+    """Per-image complex correlation magnitude (coherence), returned as ``(mean, std)``.
+
+    For each image in the batch, computes
+    :math:`|\\langle\\hat{s}, s^*\\rangle| / (\\|\\hat{s}\\| \\cdot \\|s\\|)`.
+    This is the single global coherence per patch — the primary SAR quality
+    indicator (F2).
+
+    Args:
+        pred:   ``(B, 2, H, W)`` float — real/imag channels.
+        target: ``(B, 2, H, W)`` float — real/imag channels.
+
+    Returns:
+        mean: batch-mean coherence in [0, 1].
+        std:  batch-std coherence.
+    """
+    # (B, 2, H, W) → (B, H, W) complex
+    pred_c = torch.view_as_complex(pred.permute(0, 2, 3, 1).contiguous())  # (B, H, W)
+    target_c = torch.view_as_complex(target.permute(0, 2, 3, 1).contiguous())  # (B, H, W)
+
+    B = pred_c.shape[0]
+    pf = pred_c.reshape(B, -1)  # (B, N)
+    tf = target_c.reshape(B, -1)  # (B, N)
+
+    # |<pred, target*>| / (||pred|| * ||target||) per image
+    num = (pf * tf.conj()).sum(dim=1).abs()  # (B,)
+    denom = pf.abs().pow(2).sum(dim=1).sqrt() * tf.abs().pow(2).sum(dim=1).sqrt() + 1e-8  # (B,)
+    gamma = num / denom  # (B,), in [0, 1]
+
+    return gamma.mean(), gamma.std()
+
+
+def psnr_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
+    """Peak Signal-to-Noise Ratio on magnitude images, averaged over the batch.
+
+    Each image uses its own ``data_range = max(|target|)`` so the metric is
+    scale-invariant to different patches (F3).
+
+    .. note::
+        Both tensors are expected to be in the same normalised domain
+        (e.g. after ``minmax_normalize``). Comparing across different
+        normalisation schemes will give meaningless values.
+
+    Args:
+        pred:   ``(B, 2, H, W)`` float — real/imag channels.
+        target: ``(B, 2, H, W)`` float — real/imag channels.
+        eps:    Small constant to avoid log(0).
+
+    Returns:
+        Scalar mean PSNR [dB] over the batch.
+    """
+    pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + eps)  # (B, H, W)
+    target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + eps)  # (B, H, W)
+
+    B = pred_mag.shape[0]
+    data_range = target_mag.reshape(B, -1).amax(dim=1)  # (B,)
+    mse_per_image = (
+        F.mse_loss(pred_mag, target_mag, reduction="none").reshape(B, -1).mean(dim=1)
+    )  # (B,)
+    psnr = 10.0 * torch.log10(data_range**2 / (mse_per_image + eps))  # (B,)
+    return psnr.mean()
+
+
+def ssim_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
+    """Structural Similarity Index on magnitude images, averaged over the batch (F3).
+
+    Uses the torchmetrics SSIM implementation.  ``data_range`` is fixed to
+    ``√2`` — the theoretical maximum magnitude when both channels are
+    normalised to ``[0, 1]`` (real² + imag² ≤ 2).  Using a fixed value
+    makes SSIM scores comparable across batches and epochs; a per-batch
+    adaptive ``amax`` would shift the stability constants and produce
+    incomparable values.
+
+    .. note::
+        Both inputs must be in the same normalised domain, e.g. after
+        ``minmax_normalize(., GT_MIN, GT_MAX)`` so channels are in ``[0, 1]``.
+
+    Args:
+        pred:   ``(B, 2, H, W)`` float — real/imag channels.
+        target: ``(B, 2, H, W)`` float — real/imag channels.
+        eps:    Regulariser added before taking the square root of the magnitude.
+
+    Returns:
+        Scalar mean SSIM in [0, 1] over the batch.
+    """
+    pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + eps).unsqueeze(1)  # (B,1,H,W)
+    target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + eps).unsqueeze(1)  # (B,1,H,W)
+
+    # Fixed data_range: channels normalised to [0,1] ⇒ max magnitude = sqrt(2).
+    data_range = math.sqrt(2.0)
+    result = ssim_fn(pred_mag, target_mag, data_range=data_range, return_full_image=False)
+    # ssim_fn return type is Tensor | tuple[Tensor, Tensor]; return_full_image=False → Tensor.
+    return result if isinstance(result, Tensor) else result[0]
 
 
 def complex_coherence_loss(pred: Tensor, target: Tensor) -> Tensor:
