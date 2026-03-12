@@ -53,34 +53,34 @@ repos:
           ]
 
   # python docstring coverage checking
-  # - repo: https://github.com/econchick/interrogate
-  #   rev: 1.7.0 # or master if you're bold
-  #   hooks:
-  #     - id: interrogate
-  #       args:
-  #         [
-  #           --verbose,
-  #           --fail-under=80,
-  #           --ignore-init-module,
-  #           --ignore-init-method,
-  #           --ignore-module,
-  #           --ignore-nested-functions,
-  #           -vv,
-  #         ]
+  - repo: https://github.com/econchick/interrogate
+    rev: 1.7.0 # or master if you're bold
+    hooks:
+      - id: interrogate
+        args:
+          [
+            --verbose,
+            --fail-under=80,
+            --ignore-init-module,
+            --ignore-init-method,
+            --ignore-module,
+            --ignore-nested-functions,
+            -vv,
+          ]
 
-  # # python check (PEP8), programming errors and code complexity
-  # - repo: https://github.com/PyCQA/flake8
-  #   rev: 7.3.0
-  #   hooks:
-  #     - id: flake8
-  #       args:
-  #         [
-  #           "--extend-ignore",
-  #           "E203,E402,E501,F401,F841,RST2,RST301",
-  #           "--exclude",
-  #           "logs/*,data/*",
-  #         ]
-  #       additional_dependencies: [flake8-rst-docstrings==0.3.0]
+  # python check (PEP8), programming errors and code complexity
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        args:
+          [
+            "--extend-ignore",
+            "E203,E402,E501,F401,F841,RST2,RST301",
+            "--exclude",
+            "logs/*,data/*",
+          ]
+        additional_dependencies: [flake8-rst-docstrings==0.3.0]
 
   # python security linter
   - repo: https://github.com/PyCQA/bandit

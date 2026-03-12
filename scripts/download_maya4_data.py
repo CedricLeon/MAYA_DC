@@ -3,9 +3,9 @@ import os
 import sys
 from pathlib import Path
 
-import maya4  # type: ignore
+import maya4
 import numpy as np
-from maya4 import (  # type: ignore
+from maya4 import (
     GT_MAX,
     GT_MIN,
     RC_MAX,

@@ -44,7 +44,7 @@ from maya4 import (
     SARZarrDataset,
 )
 from maya4.normalization import NormalizationModule
-from sarpyx.processor.algorithms.constants import RANGE_DECIMATION_MAP  # type: ignore
+from sarpyx.processor.algorithms.constants import RANGE_DECIMATION_MAP
 
 # ---------------------------------------------------------------------------
 # Dataset
@@ -79,6 +79,7 @@ class RCMCSARDataset(SARZarrDataset):
         self._drop_files_without_ephemeris()
 
     def _drop_files_without_ephemeris(self) -> None:
+        """Filter out zarr files that lack ephemeris data in their metadata."""
         all_files = self.get_files()
         valid = []
         for zfile in all_files:
@@ -142,6 +143,7 @@ class RCMCSARDataset(SARZarrDataset):
 
     # ------------------------------------------------------------------
     def __getitem__(self, idx: tuple[str, int, int]):
+        """Return one sample: (rcmc, slc, metadata, ephemeris, coords)."""
         zfile, y, x = idx
 
         # Parent reads the patch and applies the SARTransform normalization.
@@ -281,23 +283,23 @@ class MAYA4DataModule(lightning.LightningDataModule):
         """Build one DataLoader for a given split."""
         hp = self.hparams  # type: ignore[attr-defined]
 
-        patch_az = hp.patch_size[0]
-        patch_rg = hp.patch_size[1]
-        total_az = patch_az + 2 * hp.azimuth_buffer
+        patch_az = hp.patch_size[0]  # type: ignore[attr-defined]
+        patch_rg = hp.patch_size[1]  # type: ignore[attr-defined]
+        total_az = patch_az + 2 * hp.azimuth_buffer  # type: ignore[attr-defined]
 
         filters = SampleFilter(
             parts=parts,
-            years=hp.years,
-            polarizations=hp.polarizations,
-            stripmap_modes=hp.stripmap_modes,
+            years=hp.years,  # type: ignore[attr-defined]
+            polarizations=hp.polarizations,  # type: ignore[attr-defined]
+            stripmap_modes=hp.stripmap_modes,  # type: ignore[attr-defined]
             # No zarr_versions filter here: _drop_files_without_ephemeris() handles
             # all culling in one place and logs how many files were dropped and why.
         )
 
         dataset = RCMCSARDataset(
-            azimuth_buffer=hp.azimuth_buffer,
+            azimuth_buffer=hp.azimuth_buffer,  # type: ignore[attr-defined]
             # SARZarrDataset keyword arguments:
-            data_dir=hp.data_dir,
+            data_dir=hp.data_dir,  # type: ignore[attr-defined]
             filters=filters,
             transform=self.transforms,
             patch_size=(total_az, patch_rg),
@@ -308,9 +310,9 @@ class MAYA4DataModule(lightning.LightningDataModule):
             patch_mode="rectangular",
             complex_valued=False,  # split into real + imag channels
             positional_encoding=False,
-            online=hp.online,
+            online=hp.online,  # type: ignore[attr-defined]
             max_products=max_products,
-            samples_per_prod=hp.samples_per_prod,
+            samples_per_prod=hp.samples_per_prod,  # type: ignore[attr-defined]
             save_samples=True,
             verbose=False,
             use_balanced_sampling=False,  # we control diversity via train/val/test parts
@@ -318,7 +320,7 @@ class MAYA4DataModule(lightning.LightningDataModule):
 
         sampler = KPatchSampler(
             dataset,
-            samples_per_prod=hp.samples_per_prod,
+            samples_per_prod=hp.samples_per_prod,  # type: ignore[attr-defined]
             shuffle_files=shuffle,
             patch_order="chunk",
             verbose=False,
@@ -328,56 +330,50 @@ class MAYA4DataModule(lightning.LightningDataModule):
             dataset,
             batch_size=self.batch_size_per_device,
             sampler=sampler,
-            num_workers=hp.num_workers,
-            pin_memory=hp.pin_memory,
+            num_workers=hp.num_workers,  # type: ignore[attr-defined]
+            pin_memory=hp.pin_memory,  # type: ignore[attr-defined]
             collate_fn=_collate_sar_batch,
         )
 
     # ------------------------------------------------------------------
     def setup(self, stage: str | None = None) -> None:
+        """Create the DataLoaders for each stage."""
         hp = self.hparams  # type: ignore[attr-defined]
 
         if self.trainer is not None:
             world = self.trainer.world_size
-            if hp.batch_size % world != 0:
+            if hp.batch_size % world != 0:  # type: ignore[attr-defined]
                 raise RuntimeError(
-                    f"batch_size ({hp.batch_size}) must be divisible "
+                    f"batch_size ({hp.batch_size}) must be divisible "  # type: ignore[attr-defined]
                     f"by the number of GPUs ({world})."
                 )
-            self.batch_size_per_device = hp.batch_size // world
+            self.batch_size_per_device = hp.batch_size // world  # type: ignore[attr-defined]
 
         if stage in ("fit", None):
             self._train_loader = self._make_dataloader(
-                hp.train_parts, hp.max_products_train, shuffle=True
+                hp.train_parts, hp.max_products_train, shuffle=True  # type: ignore[attr-defined]
             )
             self._val_loader = self._make_dataloader(
-                hp.val_parts, hp.max_products_val, shuffle=False
+                hp.val_parts, hp.max_products_val, shuffle=False  # type: ignore[attr-defined]
             )
 
         if stage in ("test", None):
             self._test_loader = self._make_dataloader(
-                hp.test_parts, hp.max_products_test, shuffle=False
+                hp.test_parts, hp.max_products_test, shuffle=False  # type: ignore[attr-defined]
             )
 
     # ------------------------------------------------------------------
     def train_dataloader(self) -> DataLoader:
+        """Return the DataLoader for the training set."""
         return self._train_loader  # type: ignore[attr-defined]
 
     def val_dataloader(self) -> DataLoader:
+        """Return the DataLoader for the validation set."""
         return self._val_loader  # type: ignore[attr-defined]
 
     def test_dataloader(self) -> DataLoader:
+        """Return the DataLoader for the test set."""
         return self._test_loader  # type: ignore[attr-defined]
-
-    # ------------------------------------------------------------------
-    def teardown(self, stage: str | None = None) -> None:
-        pass
-
-    def state_dict(self) -> dict[str, Any]:
-        return {}
-
-    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        pass
 
 
 if __name__ == "__main__":

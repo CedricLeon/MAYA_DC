@@ -10,14 +10,14 @@ import numpy as np
 # Add path to finding srp/sarpyx if needed, assuming running from root
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from sarpyx.processor.algorithms.constants import (  # type: ignore
+from sarpyx.processor.algorithms.constants import (
     RANGE_DECIMATION_MAP,
     TX_WAVELENGTH_M,
 )
-from sarpyx.processor.core.focus import CoarseRDA  # type: ignore
+from sarpyx.processor.core.focus import CoarseRDA
 
 # Sarpyx imports
-from sarpyx.utils.zarr_utils import ProductHandler  # type: ignore
+from sarpyx.utils.zarr_utils import ProductHandler
 
 import src.utils as utils
 from src.utils import compute_correlation, compute_mag_correlation, log_info, log_step
