@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import lightning
 import torch
 from compressai.models import CompressionModel
-from maya4 import RC_MAX, RC_MIN, minmax_inverse
+from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN, minmax_inverse, minmax_normalize
 from torch import Tensor
 
 from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
@@ -59,6 +59,7 @@ class RCMCDCmodule(lightning.LightningModule):
 
     # ------------------------------------------------------------------
     def forward(self, x: Tensor) -> ForwardOutput:
+        """Default forward pass."""
         return self.net(x)
 
     # ------------------------------------------------------------------
@@ -68,6 +69,7 @@ class RCMCDCmodule(lightning.LightningModule):
         criterion_dict: Dict[str, Any],
         aux_loss: float,
     ) -> None:
+        """Log training/validation/test metrics with appropriate prefixes and settings."""
         log_info = {f"{prefix}/{key}": value for key, value in criterion_dict.items()}
         log_info[f"{prefix}/aux"] = aux_loss
 
@@ -88,7 +90,7 @@ class RCMCDCmodule(lightning.LightningModule):
         )
 
     # ------------------------------------------------------------------
-    def _extract_inputs_targets(
+    def _extract_from_batch(
         self, batch
     ) -> Tuple[Tensor, Tensor, Tensor, Optional[List], Optional[List]]:
         """Unpack a batch and extract model inputs and targets.
@@ -102,7 +104,7 @@ class RCMCDCmodule(lightning.LightningModule):
         the buffer from SLC/RCMC to get the loss targets.
 
         Returns:
-            rcmc_input:     ``(B, 2, Az+2*buf, Rg)``  - full RCMC fed to compressor
+            rcmc_batch:     ``(B, 2, Az+2*buf, Rg)``  - full RCMC fed to compressor
             slc_target:     ``(B, 2, Az, Rg)``        - ground-truth SLC (trimmed)
             rcmc_target:    ``(B, 2, Az, Rg)``        - RCMC core (for RCMC-domain loss)
             metadata_list:  list of DataFrames or None
@@ -111,59 +113,72 @@ class RCMCDCmodule(lightning.LightningModule):
         # Support both old 2-tuple batches and the new 5-tuple format
         if len(batch) == 5:
             rcmc_batch, slc_batch, metadata_list, ephemeris_list, _coords = batch
-        elif len(batch) == 2:
-            rcmc_batch, slc_batch = batch
-            metadata_list, ephemeris_list = None, None
         else:
             raise ValueError(f"Unexpected batch length {len(batch)}, expected 2 or 5")
 
         buffer = self.hparams.azimuth_buffer  # type: ignore[attr-defined]
 
-        if rcmc_batch.dim() == 4:  # (B, C, Az, Rg)
-            B, C, Az, Rg = rcmc_batch.shape
-            Az_core = Az - 2 * buffer
-            rcmc_target = rcmc_batch[:, :, buffer : buffer + Az_core, :]
-            slc_target = slc_batch[:, :, buffer : buffer + Az_core, :]
-        else:
-            # Unexpected shape - fall back to no trimming
-            rcmc_target = rcmc_batch
-            slc_target = slc_batch
+        _B, _C, Az, _Rg = rcmc_batch.shape
+        Az_core = Az - 2 * buffer
+        rcmc_target = rcmc_batch[:, :, buffer : buffer + Az_core, :]
+        slc_target = slc_batch[:, :, buffer : buffer + Az_core, :]
 
         return rcmc_batch, slc_target, rcmc_target, metadata_list, ephemeris_list
 
+    def forward_with_az_compression(self, batch: Tensor) -> Any:
+        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list = (
+            self._extract_from_batch(batch)
+        )
+
+        # Forward pass through compression model
+        output = self.forward(rcmc_input)
+
+        # Denormalize the reconstructed RCMC (CoarseRDA cannot operate on normalized values).
+        x_hat_denorm = minmax_inverse(output.x_hat, RC_MIN, RC_MAX)
+        # Azimuth compression with sarpyx (CoarseRDA) to get reconstructed SLC
+        slc_recon_denorm = full_azimuth_compress_batch(
+            x_hat_denorm,
+            metadata_list,
+            ephemeris_list,
+            buffer_size=self.hparams.azimuth_buffer,  # type: ignore[attr-defined]
+            device=str(output.x_hat.device),
+        )
+        # renormalize the reconstructed SLC for loss computation (criterion may expect normalized inputs)
+        slc_recon = minmax_normalize(slc_recon_denorm, GT_MIN, GT_MAX)
+
+        # Loss: compare reconstructed SLC to ground-truth SLC
+        criterion_input = ForwardOutput(x_hat=slc_recon, likelihoods=output.likelihoods)
+        return self.criterion(criterion_input, slc_target)
+
     # ------------------------------------------------------------------
     def training_step(self, batch, batch_idx):
+        """Full training step with manual optimization."""
+        criterion = self.forward_with_az_compression(batch)
+
+        # Main network backward
         optimizers = self.optimizers()
         if not isinstance(optimizers, list):
             optimizers = [optimizers]
         net_optimizer = optimizers[0]
         aux_optimizer = optimizers[1] if len(optimizers) > 1 else None
 
-        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list = (
-            self._extract_inputs_targets(batch)
-        )
-
-        # Forward pass through compression model
-        output = self.forward(rcmc_input)
-
-        # Azimuth compression on reconstructed RCMC (with buffer)
-        # Denormalize x_hat from [0,1] back to physical IQ scale before focusing;
-        # CoarseRDA must operate on real-amplitude data, not normalized values.
-        x_hat_phys = minmax_inverse(output.x_hat.detach(), RC_MIN, RC_MAX)
-        slc_recon = full_azimuth_compress_batch(
-            x_hat_phys,
-            metadata_list,
-            ephemeris_list,
-            buffer_size=self.hparams.azimuth_buffer,  # type: ignore[attr-defined]
-            device=str(output.x_hat.device),
-        )
-
-        # Loss: compare reconstructed SLC to ground-truth SLC
-        criterion_input = ForwardOutput(x_hat=slc_recon, likelihoods=output.likelihoods)
-        criterion = self.criterion(criterion_input, slc_target)
-
-        # Main network backward
         self.manual_backward(criterion["loss"])
+
+        # DEBUG: check for null/zero gradients after backward — remove once confirmed working
+        null_grad, zero_grad = [], []
+        for name, p in self.net.named_parameters():
+            if p.requires_grad:
+                if p.grad is None:
+                    null_grad.append(name)
+                elif p.grad.abs().max() == 0:
+                    zero_grad.append(name)
+        if null_grad:
+            self.print(f"[grad-check] NULL grad ({len(null_grad)} params): {null_grad[:5]}")
+        if zero_grad:
+            self.print(f"[grad-check] ZERO grad ({len(zero_grad)} params): {zero_grad[:5]}")
+        if not null_grad and not zero_grad:
+            self.print("[grad-check] OK — all gradients non-null and non-zero")
+
         self.clip_gradients(
             net_optimizer,  # type: ignore[attr-defined]
             gradient_clip_val=self.hparams.gradient_clip_norm,  # type: ignore[attr-defined]
@@ -179,33 +194,15 @@ class RCMCDCmodule(lightning.LightningModule):
             aux_optimizer.step()
             aux_optimizer.zero_grad()
 
-        # FIX 11: do NOT call sch.step() here; ReduceLROnPlateau is stepped
-        # in on_validation_epoch_end with the monitored metric.
-
         lr = net_optimizer.param_groups[0]["lr"]
         self.log("train/lr", lr, on_step=True, on_epoch=False, prog_bar=False)
         self._log_metrics("train", criterion, aux_loss.item())
 
     # ------------------------------------------------------------------
     def validation_step(self, batch, batch_idx):
-        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list = (
-            self._extract_inputs_targets(batch)
-        )
-
-        output = self.forward(rcmc_input)
-        x_hat_phys = minmax_inverse(output.x_hat.detach(), RC_MIN, RC_MAX)
-        slc_recon = full_azimuth_compress_batch(
-            x_hat_phys,
-            metadata_list,
-            ephemeris_list,
-            buffer_size=self.hparams.azimuth_buffer,  # type: ignore[attr-defined]
-            device=str(output.x_hat.device),
-        )
-
-        criterion_input = ForwardOutput(x_hat=slc_recon, likelihoods=output.likelihoods)
-        criterion = self.criterion(criterion_input, slc_target)
-        aux_loss = self.net.aux_loss()
-        self._log_metrics("valid", criterion, aux_loss.item())
+        """Validation step also with azimuth compression."""
+        criterion = self.forward_with_az_compression(batch)
+        self._log_metrics("valid", criterion, self.net.aux_loss().item())
 
     # ------------------------------------------------------------------
     def on_test_epoch_start(self) -> None:
@@ -214,24 +211,10 @@ class RCMCDCmodule(lightning.LightningModule):
         self.net.update(force=True)
 
     def test_step(self, batch, batch_idx):
-        rcmc_input, slc_target, _rcmc_target, metadata_list, ephemeris_list = (
-            self._extract_inputs_targets(batch)
-        )
-
-        output = self.forward(rcmc_input)
-        x_hat_phys = minmax_inverse(output.x_hat.detach(), RC_MIN, RC_MAX)
-        slc_recon = full_azimuth_compress_batch(
-            x_hat_phys,
-            metadata_list,
-            ephemeris_list,
-            buffer_size=self.hparams.azimuth_buffer,  # type: ignore[attr-defined]
-            device=str(output.x_hat.device),
-        )
-
-        criterion_input = ForwardOutput(x_hat=slc_recon, likelihoods=output.likelihoods)
-        criterion = self.criterion(criterion_input, slc_target)
-        aux_loss = self.net.aux_loss()
-        self._log_metrics("test", criterion, aux_loss.item())
+        """Test step with likelihoods evaluation."""
+        # @TODO: transform this classic testing that uses likelihhods into a real testing that performs actual compression
+        criterion = self.forward_with_az_compression(batch)
+        self._log_metrics("test", criterion, self.net.aux_loss().item())
 
     # ------------------------------------------------------------------
     def on_validation_epoch_end(self) -> None:
