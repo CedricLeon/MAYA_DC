@@ -2,8 +2,8 @@ _target_: src.data.maya4_datamodule.MAYA4DataModule
 data_dir: ${paths.data_dir}
 
 # Patch configuration
-patch_size: [2048, 2048]  # (azimuth, range)
-azimuth_buffer: 512  # Buffer size for azimuth compression
+patch_size: ???
+azimuth_buffer: ???
 
 # Training configuration
 batch_size: 4

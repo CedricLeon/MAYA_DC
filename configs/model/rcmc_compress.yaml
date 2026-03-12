@@ -23,6 +23,8 @@ model:
     delta_kde: 0.1
     delta_coherence: 0.1
     num_kde_bins: 100
+    patch_size: ???
+    azimuth_buffer: ???
 
   # Azimuth compression
   azimuth_buffer: 512

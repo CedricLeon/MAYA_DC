@@ -1,7 +1,7 @@
 """Loss functions for SAR compression."""
 
 import math
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -125,19 +125,20 @@ def kde_histogram_loss(pred: Tensor, target: Tensor, num_bins: int = 100) -> Ten
         pred_kde = _gaussian_kde(ps, eval_pts, h)
         target_kde = _gaussian_kde(ts, eval_pts, h)
 
-        # Approximate L1 integral via trapezoidal sum
-        dx = (hi - lo + 2.0 * margin) / num_bins
+        # Approximate L1 integral via trapezoidal sum.
+        # dx is a bin-width constant — detach so it does not contribute spurious
+        # gradients through hi/lo (which depend on ps.max() and ps.min()).
+        dx = ((hi - lo + 2.0 * margin) / num_bins).detach()
         total_loss = total_loss + torch.abs(pred_kde - target_kde).sum() * dx
 
     return total_loss / B
 
 
-def estimate_rate(output: ForwardOutput) -> Tensor:
+def estimate_rate(likelihoods: Likelihoods, compress_shape: Tuple[int, int, int, int]) -> Tensor:
     """Compute the bitrate (rate) from the likelihoods estimnated by the model."""
-    N, _C, H, W = output.x_hat.shape
+    N, _C, H, W = compress_shape
     num_pixels = N * H * W
 
-    likelihoods = output.likelihoods
     bpp_y = torch.log(likelihoods.y).sum() / (-math.log(2) * num_pixels)
     bpp_z = torch.log(likelihoods.z).sum() / (-math.log(2) * num_pixels)
     return bpp_y + bpp_z
@@ -215,6 +216,8 @@ class CompoundCompressionLoss(nn.Module):
         delta_kde: float = 0.1,
         delta_coherence: float = 0.1,
         num_kde_bins: int = 100,
+        patch_size: Tuple[int, int] = (512, 512),
+        azimuth_buffer: int = 512,
     ):
         """Initialize compound compression loss.
 
@@ -227,11 +230,16 @@ class CompoundCompressionLoss(nn.Module):
         super().__init__()
         self.lmbda = lmbda
         self.compound_loss = CompoundSARLoss(delta_kde, delta_coherence, num_kde_bins)
+        self.slc_shape = patch_size
+        self.az_buffer = azimuth_buffer
+        self.rcmc_shape = (patch_size[0] + 2 * azimuth_buffer, patch_size[1])
 
     def forward(self, output: ForwardOutput, target: Tensor) -> Dict[str, Any]:
         """Compute compression loss with compound distortion that returns a dictionary of
         components."""
-        rate = estimate_rate(output)
+        # recon_shape is the batch from x_hat, the channels from x_hat and rcmc_shape height and width
+        recon_shape = (output.x_hat.shape[0], output.x_hat.shape[1], *self.rcmc_shape)
+        rate = estimate_rate(output.likelihoods, recon_shape)
         distortion_dict = self.compound_loss(output.x_hat, target)
 
         loss = rate + self.lmbda * distortion_dict["loss"]
@@ -252,7 +260,12 @@ class SimpleMSELoss(nn.Module):
     Compares reconstructed RCMC directly with target without azimuth compression.
     """
 
-    def __init__(self, lmbda: float = 0.01):
+    def __init__(
+        self,
+        lmbda: float = 0.01,
+        patch_size: Tuple[int, int] = (512, 512),
+        azimuth_buffer: int = 512,
+    ):
         """Initialize simple MSE loss.
 
         Args:
@@ -260,10 +273,14 @@ class SimpleMSELoss(nn.Module):
         """
         super().__init__()
         self.lmbda = lmbda
+        self.slc_shape = patch_size
+        self.az_buffer = azimuth_buffer
+        self.rcmc_shape = (patch_size[0] + 2 * azimuth_buffer, patch_size[1])
 
     def forward(self, output: ForwardOutput, target: Tensor) -> Dict[str, Any]:
         """Compute simple MSE loss."""
-        rate = estimate_rate(output)
+        recon_shape = (output.x_hat.shape[0], output.x_hat.shape[1], *self.rcmc_shape)
+        rate = estimate_rate(output.likelihoods, recon_shape)
         mse = F.mse_loss(output.x_hat, target)
 
         loss = rate + self.lmbda * mse

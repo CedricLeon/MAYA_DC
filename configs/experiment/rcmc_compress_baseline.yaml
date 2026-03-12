@@ -23,6 +23,7 @@ seed: 42
 # Examples: patch=512  buffer=128 ->  768 ( 768/16=48  ✓)  ~2 GB VRAM
 #           patch=1024 buffer=256 -> 1536 (1536/16=96  ✓)  ~4 GB VRAM  ← baseline
 #           patch=2048 buffer=512 -> 3072 (3072/16=192 ✓)  ~12 GB VRAM (requires A100+)
+patch_size: [512, 512]
 azimuth_buffer: 512
 
 # Trainer configuration
@@ -39,7 +40,7 @@ trainer:
 
 # Data configuration
 data:
-  patch_size: [512, 512]
+  patch_size: ${patch_size}
   batch_size: 4
   num_workers: 4
   # Use 10 products × 50 patches/product = ~500 patches/epoch for a quick first run.
@@ -49,18 +50,18 @@ data:
   max_products_test: 2
   samples_per_prod: 100   # patches per product per epoch; 0 = all
   online: false          # set true ONCE to download; keep false afterward
-  azimuth_buffer: ${azimuth_buffer}  # Reference top-level parameter
+  azimuth_buffer: ${azimuth_buffer}
 
 # Model configuration
 model:
-  azimuth_buffer: ${azimuth_buffer}  # Reference top-level parameter
-  net:
-    nb_input_channels: 2
-    nb_channels_main: 128
+  azimuth_buffer: ${azimuth_buffer}
   criterion:
-    lmbda: 0.01
-  net_optimizer:
-    lr: 0.0001
+    lmbda: 1  # Rate-distortion tradeoff
+    delta_kde: 1
+    delta_coherence: 1
+    num_kde_bins: 100
+    patch_size: ${patch_size}
+    azimuth_buffer: ${azimuth_buffer}
 
 # Logging
 logger:
