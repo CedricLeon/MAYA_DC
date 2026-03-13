@@ -111,6 +111,47 @@ def ssim_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     return result if isinstance(result, Tensor) else result[0]
 
 
+def phase_preservation_metric(pred: Tensor, target: Tensor) -> Tuple[Tensor, Tensor]:
+    """Per-image phase preservation metric, returned as ``(mean, std)`` (F9).
+
+    Measures how well the reconstructed phase matches the target, *ignoring
+    amplitude*.  For each pixel, the phasor difference
+    :math:`\\exp(j(\\phi_{\\hat{s}} - \\phi_s))` is computed on the unit circle.
+    The metric is:
+
+    .. math::
+
+        \\gamma_\\phi = 1 - \\left|\\overline{\\exp(j(\\phi_{\\hat{s}} - \\phi_s))}\\right|
+
+    where the bar denotes the spatial mean over the patch.
+    A value of **0** = perfect phase preservation; **1** = fully random phase.
+
+    This is complementary to ``complex_correlation_metric``, which conflates
+    phase and amplitude.  Use this metric to diagnose phase-only degradation.
+
+    Args:
+        pred:   ``(B, 2, H, W)`` float — real/imag channels.
+        target: ``(B, 2, H, W)`` float — real/imag channels.
+
+    Returns:
+        mean: batch-mean phase error in [0, 1].
+        std:  batch-std phase error.
+    """
+    pred_c = torch.view_as_complex(pred.permute(0, 2, 3, 1).contiguous())  # (B, H, W)
+    target_c = torch.view_as_complex(target.permute(0, 2, 3, 1).contiguous())  # (B, H, W)
+
+    # Project to unit circle to isolate phase
+    pred_ph = pred_c / (pred_c.abs() + 1e-8)  # exp(j*phi_pred)
+    target_ph = target_c / (target_c.abs() + 1e-8)  # exp(j*phi_target)
+
+    # Phase-difference phasor: exp(j*(phi_pred - phi_target))
+    diff_ph = pred_ph * target_ph.conj()  # (B, H, W)
+
+    B = diff_ph.shape[0]
+    gamma = 1.0 - diff_ph.reshape(B, -1).mean(dim=1).abs()  # (B,), in [0, 1]
+    return gamma.mean(), gamma.std()
+
+
 def complex_coherence_loss(pred: Tensor, target: Tensor) -> Tensor:
     """Compute interferometric coherence loss.
 

@@ -221,6 +221,14 @@ quality is noticeably lower).
   `valid/complex_corr_mean`, `valid/complex_corr_std`, `valid/psnr_mag`, `valid/ssim_mag`
   (and the matching `test/` variants).
 
+### IMPROVE 19 — Per-module gradient norm logging (F5)
+
+**File:** `src/models/rcmc_compress_module.py`
+**Change:** After `manual_backward(criterion["loss"])` and before `clip_gradients`,
+`training_step` now iterates over `g_a`, `g_s`, `h_a`, `h_s` and logs
+`train/grad_norm_<module>` (total L2 norm of all parameter gradients in that
+module) every step.  Logged pre-clip so the raw signal is preserved.
+
 ### IMPROVE 20 — Colorbars + physical SLC value range in `MonitorValReconstruction` (F1)
 
 **File:** `src/callbacks/monitor_val_reconstruction.py`
@@ -252,13 +260,19 @@ to the existing WandB log call at the end of each monitored validation batch.
 Displays the full value distribution of the decoder output, making collapse
 (all zeros) or saturation (values at `±1`) immediately visible.
 
-### IMPROVE 19 — Per-module gradient norm logging (F5)
+### IMPROVE 24 — Phase preservation metric at validation/test (F9)
 
-**File:** `src/models/rcmc_compress_module.py`
-**Change:** After `manual_backward(criterion["loss"])` and before `clip_gradients`,
-`training_step` now iterates over `g_a`, `g_s`, `h_a`, `h_s` and logs
-`train/grad_norm_<module>` (total L2 norm of all parameter gradients in that
-module) every step.  Logged pre-clip so the raw signal is preserved.
+**Files:** `src/models/components/losses.py`, `src/models/rcmc_compress_module.py`
+**Change:**
+
+- Added `phase_preservation_metric(pred, target) → (mean, std)` to
+  `losses.py`.  For each pixel it computes
+  $\exp(j(\phi_{\hat{s}} - \phi_s))$ on the unit circle, then measures
+  $1 - |\overline{\cdot}|$ per image (0 = perfect phase preservation,
+  1 = fully random phase).  Amplitude is completely factored out via
+  `pred_c / (|pred_c| + ε)` before taking the mean.
+- `validation_step` and `test_step` log `valid/phase_err_mean` and
+  `valid/phase_err_std` (and matching `test/` variants) every epoch.
 
 ---
 
@@ -312,11 +326,12 @@ or ephemeris is missing the step will raise.
 ### Coherence loss vs phase preservation
 
 `complex_coherence_loss` measures $|\langle\hat{s}, s^*\rangle| / (\|\hat{s}\| \cdot \|s\|)$,
-which conflates phase and amplitude similarity.  A dedicated **phase preservation**
-loss would measure only $1 - |\overline{\exp(j(\phi_{\hat{s}} - \phi_s))}|$ per window,
-ignoring amplitude.  The current coherence is an acceptable proxy for training
-because the MSE term already constrains amplitude, but a phase-only metric should
-be added as a separate *validation* metric.
+which conflates phase and amplitude similarity.  A dedicated phase-only metric
+measures $1 - |\overline{\exp(j(\phi_{\hat{s}} - \phi_s))}|$ per image, ignoring
+amplitude entirely.  This is now implemented as `phase_preservation_metric` in
+`losses.py` and logged at validation/test as `valid/phase_err_mean` and
+`valid/phase_err_std` (see IMPROVE 24).  The coherence loss is kept in the training
+objective as-is; the MSE term already constrains amplitude.
 
 ### `abs(y)` in the hyperprior
 
@@ -329,8 +344,11 @@ correct and intentional — do not change.
 ### `rcmc_target` extracted but not yet used in loss
 
 `_extract_from_batch` returns `rcmc_target` (the trimmed RCMC core).  It is kept
-for a planned future RCMC-domain loss term (compare `x_hat` directly to `rcmc_target`
-without azimuth compression).  This would allow training without metadata.
+for future **F8**: a separate RCMC-domain training mode that skips azimuth
+compression entirely and compares `x_hat` directly to `rcmc_target`.  This is
+not just an extra loss term — it requires a new `forward_no_az_compression` path
+in `RCMCCompressModule` that bypasses `full_azimuth_compress_batch` altogether.
+The benefit: enables training on products that lack ephemeris/metadata.
 
 ### H filter cache (F7)
 
@@ -361,9 +379,6 @@ call entirely.
 
 | ID | Feature | Priority | Track |
 | :--- | :--- | :--- | :--- |
-| F4 | **Rate–distortion scatter plot** — WandB custom chart of `valid/rate` vs `valid/distortion` over epochs | Medium | §Results generation |
-| F6 | **`x_hat` histogram to WandB** — `wandb.Histogram(output.x_hat)` once per epoch to detect collapse or saturation | Low | §First experiments |
-| F8 | **RCMC-domain loss** — compare `x_hat` (trimmed) to `rcmc_target` without azimuth compression; enables training on products without ephemeris | Medium | §Model architecture |
-| F9 | **Phase preservation metric** — dedicated `1 - \|mean(exp(j(φ_pred - φ_target)))\|` metric at validation/test, separate from coherence | Medium | §Quality metrics |
+| F8 | **RCMC-domain training mode** — skip azimuth compression in the training loop; compare `x_hat` (trimmed, normalised) directly to `rcmc_target` (normalised RCMC input). Requires a new `forward_no_az_compression` path in `RCMCCompressModule`. Enables training on products without ephemeris/metadata | Low | §Model architecture |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |
