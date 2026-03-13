@@ -139,13 +139,14 @@ def _calculate_spacecraft_dynamics(metadata: Any, ephemeris: Any) -> tuple:
 
     metadata_times = metadata.apply(lambda r: r["coarse_time"] + r["fine_time"], axis=1).values
 
-    kw = dict(kind="linear", bounds_error=False)
-    space_velocities = np.asarray(interp1d(ts, v, fill_value=(v[0], v[-1]), **kw)(metadata_times))
+    # scipy stubs type fill_value as float but also accept (below, above) tuples;
+    # the type: ignore suppresses the false Pylance warning.
+    space_velocities = np.asarray(interp1d(ts, v, fill_value=(v[0], v[-1]), kind="linear", bounds_error=False)(metadata_times))  # type: ignore[arg-type]
     positions = np.column_stack(
         [
-            interp1d(ts, x, fill_value=(x[0], x[-1]), **kw)(metadata_times),
-            interp1d(ts, y, fill_value=(y[0], y[-1]), **kw)(metadata_times),
-            interp1d(ts, z, fill_value=(z[0], z[-1]), **kw)(metadata_times),
+            interp1d(ts, x, fill_value=(x[0], x[-1]), kind="linear", bounds_error=False)(metadata_times),  # type: ignore[arg-type]
+            interp1d(ts, y, fill_value=(y[0], y[-1]), kind="linear", bounds_error=False)(metadata_times),  # type: ignore[arg-type]
+            interp1d(ts, z, fill_value=(z[0], z[-1]), kind="linear", bounds_error=False)(metadata_times),  # type: ignore[arg-type]
         ]
     )
 

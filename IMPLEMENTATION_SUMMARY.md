@@ -305,6 +305,31 @@ Displays the full value distribution of the decoder output, making collapse
 - `validation_step` and `test_step` log `valid/phase_err_mean` and
   `valid/phase_err_std` (and matching `test/` variants) every epoch.
 
+### IMPROVE 26 — Auto-generated WandB run names
+
+**File:** `src/utils/template_utils.py`
+**Change:** Added `make_wandb_run_name(cfg)` and wired it into
+`early_wandb_initialization` so every run gets a human-readable name automatically.
+
+Name pattern: `<model>-<activation>_s<seed>_L<lmbda>_<mode>_buf<buf>_<loss>_lr<lr>_b<bs>[_<N>p]`
+
+| Token | Source | Example |
+| :--- | :--- | :--- |
+| `<model>` | `model._target_` → `FP` / `SHP` / fallback class name | `SHP` |
+| `<activation>` | `model.net.activation` | `gdn` |
+| `s<seed>` | `seed` | `s42` |
+| `L<lmbda>` | `model.lmbda` | `L0.01` |
+| `<mode>` | `model.training_mode` | `slc` |
+| `buf<buf>` | `model.azimuth_buffer` | `buf512` |
+| `<loss>` | `model.criterion._target_` → `MSE` / `Compound` / `SAR` | `SAR` |
+| `lr<lr>` | `model.optimizer.lr` | `lr0.0001` |
+| `b<bs>` | `data.batch_size` | `b4` |
+| `_<N>p` *(optional)* | `max_products × samples_per_prod` (omitted when `spp=0`) | `_700p` |
+
+Example: `SHP-gdn_s42_L0.01_slc_buf512_SAR_lr0.0001_b4_700p`
+
+The name can be overridden by setting `logger.wandb.run_name` in the config.
+
 ---
 
 ## 🏗 Data Flow Details
