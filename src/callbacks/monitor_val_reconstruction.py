@@ -15,41 +15,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from lightning import Callback, LightningModule, Trainer
-from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN
+from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN, minmax_inverse
 from torch import Tensor
 
+from src.models.components.losses import (
+    complex_coherence_loss,
+    complex_correlation_metric,
+    kde_histogram_loss,
+    phase_preservation_metric,
+    psnr_amplitude,
+    ssim_amplitude,
+)
 from src.utils.logging import print_images_statistics
+from src.utils.processing_utils import EPS, clip_mean_std_numpy, phys_to_logI_torch
 from src.utils.sarpyx_azimuth_compression import full_azimuth_compress_batch
-
-EPS = 1e-2
-_ROW_TITLES = [
-    "RCMC input\n(logI)",
-    "RCMC reconstructed\n(logI)",
-    "SLC reconstructed\n(logI)",
-    "SLC target\n(logI)",
-]
-
-
-def _to_logI(t: Tensor) -> Tensor:
-    """Convert ``(B, 2, H, W)`` real/imag tensor to ``(B, H, W)`` log-Intensity.
-
-    ``log_intensity = log(real² + imag² + ε)``
-
-    Returns a Tensor on the same device as the input.
-    Only convert to numpy at matplotlib call sites.
-    """
-    return torch.log(t[:, 0] ** 2 + t[:, 1] ** 2 + EPS)  # (B, H, W)
-
-
-def _minmax_denorm(t: Tensor, vmin: float, vmax: float) -> Tensor:
-    """Invert MAYA4 minmax normalization: ``[0, 1] → [vmin, vmax]``."""
-    return t * (vmax - vmin) + vmin
-
-
-def _clip_mean_std(img: np.ndarray, factor: float = 3.0) -> np.ndarray:
-    """Clip ``img`` to ``mean ± factor * std`` for better contrast in visualizations."""
-    mu, sigma = img.mean(), img.std()
-    return np.clip(img, mu - factor * sigma, mu + factor * sigma)
 
 
 class MonitorValReconstruction(Callback):
@@ -86,6 +65,13 @@ class MonitorValReconstruction(Callback):
         self.clip_factor = clip_factor
         self.verbose = verbose
 
+        self.ROW_TITLES = [
+            "RCMC input\n(logI)",
+            "RCMC reconstructed\n(logI)",
+            "SLC reconstructed\n(logI)",
+            "SLC target\n(logI)",
+        ]
+
     # ------------------------------------------------------------------
     def on_fit_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
         """Verify the callback is attached to the correct module class."""
@@ -111,70 +97,68 @@ class MonitorValReconstruction(Callback):
             return
 
         # ── Unpack batch ──────────────────────────────────────────────
-        if len(batch) == 5:
-            rcmc_batch, slc_batch, metadata_list, ephemeris_list, coords_list = batch
-        elif len(batch) == 2:
-            rcmc_batch, slc_batch = batch
-            metadata_list, ephemeris_list, coords_list = None, None, None
-        else:
-            raise ValueError(f"Unexpected batch length {len(batch)}, expected 2 or 5")
+        rcmc_batch, slc_batch, metadata_list, ephemeris_list, coords_list = batch
 
-        buffer: int = pl_module.hparams.azimuth_buffer  # type: ignore[attr-defined]
+        az_buffer: int = pl_module.hparams.azimuth_buffer  # type: ignore[attr-defined]
         B, _C, Az, _Rg = rcmc_batch.shape
-        Az_core = Az - 2 * buffer
+        Az_core = Az - 2 * az_buffer
+        # Limit batches to n samples
         n = min(self.num_images, B)
+        if n < B:
+            rcmc_batch = rcmc_batch[:n]
+            slc_batch = slc_batch[:n]
+            metadata_list = metadata_list[:n]
+            ephemeris_list = ephemeris_list[:n]
+            coords_list = coords_list[:n]
 
         # ── Forward pass (no grad, on same device as model) ───────────
         with torch.no_grad():
             output = pl_module(rcmc_batch)
+            x_hat_phys = minmax_inverse(output.x_hat, RC_MIN, RC_MAX)  # (B,2,Az+2*buf,Rg)
 
-            # Denormalize x_hat to physical IQ scale before focusing so that
-            # slc_recon is in the same physical intensity domain as slc_target.
-            x_hat_phys = _minmax_denorm(output.x_hat, RC_MIN, RC_MAX)  # (B,2,Az+2*buf,Rg)
-
-            # Azimuth-focus the denormalized reconstructed RCMC (buffer still attached)
+            # Azimuth-focus the denormalized reconstructed RCMC
             slc_recon = full_azimuth_compress_batch(
                 x_hat_phys,
                 metadata_list,
                 ephemeris_list,
-                buffer_size=buffer,
+                buffer_size=az_buffer,
                 device=str(output.x_hat.device),
                 coords_batch=coords_list,
             )  # (B, 2, Az_core, Rg)  — physical SLC scale
 
-        # ── Trim azimuth buffer; denormalize to physical scale ────────
-        rcmc_input_core = _minmax_denorm(
-            rcmc_batch[:, :, buffer : buffer + Az_core, :], RC_MIN, RC_MAX
-        )  # (B,2,Az_core,Rg) — physical RCMC
-        rcmc_recon_core = _minmax_denorm(
-            output.x_hat[:, :, buffer : buffer + Az_core, :], RC_MIN, RC_MAX
-        )  # (B,2,Az_core,Rg) — physical RCMC
-        slc_target_core = _minmax_denorm(
-            slc_batch[:, :, buffer : buffer + Az_core, :], GT_MIN, GT_MAX
-        )  # (B,2,Az_core,Rg) — physical SLC
+        # ── Trim azimuth az_buffer; denormalize to physical scale ────────
+        rcmc_input_core = minmax_inverse(
+            rcmc_batch[:, :, az_buffer : az_buffer + Az_core, :], RC_MIN, RC_MAX
+        )
+        rcmc_recon_core = minmax_inverse(
+            output.x_hat[:, :, az_buffer : az_buffer + Az_core, :], RC_MIN, RC_MAX
+        )
+        slc_target_core = minmax_inverse(
+            slc_batch[:, :, az_buffer : az_buffer + Az_core, :], GT_MIN, GT_MAX
+        )
 
         # ── Log-intensity Tensors on device (B, H, W) ─────────────────
         rows_data: list[Tensor] = [
-            _to_logI(rcmc_input_core),
-            _to_logI(rcmc_recon_core),
-            _to_logI(slc_recon),
-            _to_logI(slc_target_core),
+            phys_to_logI_torch(rcmc_input_core),
+            phys_to_logI_torch(rcmc_recon_core),
+            phys_to_logI_torch(slc_recon),
+            phys_to_logI_torch(slc_target_core),
         ]
 
         if self.verbose:
             print_images_statistics(
                 {
-                    title.split("\n")[0]: rows_data[i][0].cpu().numpy()
-                    for i, title in enumerate(_ROW_TITLES)
+                    title.split("\n")[0]: rows_data[i].cpu().numpy()
+                    for i, title in enumerate(self.ROW_TITLES)
                 },
-                title=f"[MonitorValReconstruction] Epoch {trainer.current_epoch} — patch 0 logI stats",
+                title=f"[MonitorValReconstruction] Epoch {trainer.current_epoch} — first {n} patches logI stats",
             )
 
         # ── Physical SLC min/max (F1: scale explosion diagnostics) ────────
-        slc_r_min = float(slc_recon[:n].abs().min().cpu())
-        slc_r_max = float(slc_recon[:n].abs().max().cpu())
-        slc_t_min = float(slc_target_core[:n].abs().min().cpu())
-        slc_t_max = float(slc_target_core[:n].abs().max().cpu())
+        slc_r_min = float(slc_recon.abs().min().cpu())
+        slc_r_max = float(slc_recon.abs().max().cpu())
+        slc_t_min = float(slc_target_core.abs().min().cpu())
+        slc_t_max = float(slc_target_core.abs().max().cpu())
         scale_info = (
             f"SLC recon |·| ∈ [{slc_r_min:.3e}, {slc_r_max:.3e}]   "
             f"SLC target |·| ∈ [{slc_t_min:.3e}, {slc_t_max:.3e}]"
@@ -182,20 +166,19 @@ class MonitorValReconstruction(Callback):
 
         # ── Build figure ──────────────────────────────────────────────
         # Extra width per column to accommodate per-image colorbars
-        fig, axes = plt.subplots(4, n, figsize=(5 * n, 16), squeeze=False)
+        fig, axes = plt.subplots(4, n, figsize=(5 * n, 17), squeeze=False)
 
-        for row_idx, (row_title, row_tensor) in enumerate(zip(_ROW_TITLES, rows_data)):
-            # Pre-compute clipped images to get a shared vmin/vmax for this row
-            row_imgs = [
-                _clip_mean_std(row_tensor[col_idx].cpu().numpy(), self.clip_factor)
+        for row_idx, (row_title, row_tensor) in enumerate(zip(self.ROW_TITLES, rows_data)):
+            row_imgs_clipped = [
+                clip_mean_std_numpy(row_tensor[col_idx].cpu().numpy(), self.clip_factor)
                 for col_idx in range(n)
             ]
-            row_vmin = float(min(img.min() for img in row_imgs))
-            row_vmax = float(max(img.max() for img in row_imgs))
 
-            for col_idx, img_np in enumerate(row_imgs):
+            for col_idx, img_np in enumerate(row_imgs_clipped):
                 ax = axes[row_idx, col_idx]
-                im = ax.imshow(img_np, cmap="gray", aspect="auto", vmin=row_vmin, vmax=row_vmax)
+                im = ax.imshow(
+                    img_np, cmap="gray", aspect="auto", vmin=img_np.min(), vmax=img_np.max()
+                )
                 ax.axis("off")
                 if col_idx == 0:
                     # Row label on the left
@@ -217,14 +200,17 @@ class MonitorValReconstruction(Callback):
                 cbar.ax.tick_params(labelsize=6)
 
         # ── Summary metrics for the figure title ──────────────────────
-        # MSE in logI between SLC recon and SLC target (rows 2 & 3)
-        mse_slc = float(torch.mean((rows_data[2][:n] - rows_data[3][:n]) ** 2).cpu())
-        # MAE in logI between RCMC recon and RCMC input (rows 1 & 0)
-        mae_rcmc = float(torch.mean(torch.abs(rows_data[1][:n] - rows_data[0][:n])).cpu())
+        # Compute all metrics in physical scale: psnr_amplitude, ssim_amplitude, phase_preservation_metric, complex_correlation_metric, complex_coherence_loss, kde_histogram_loss, etc.
+        psnr_slc = psnr_amplitude(slc_recon, slc_target_core).item()
+        ssim_slc = ssim_amplitude(slc_recon, slc_target_core).item()
+        phase_err = phase_preservation_metric(slc_recon, slc_target_core)[0].item()
+        coherence_loss = complex_coherence_loss(slc_recon, slc_target_core).item()
+        corr_metric_mean, corr_metric_std = complex_correlation_metric(slc_recon, slc_target_core)
+        kde_loss = kde_histogram_loss(slc_recon, slc_target_core).item()
 
         fig.suptitle(
             f"Validation epoch {trainer.current_epoch} — "
-            f"SLC logI MSE: {mse_slc:.4f}   RCMC logI MAE: {mae_rcmc:.4f}\n"
+            f"SLC PSNR: {psnr_slc:.4f}dB, SSIM: {ssim_slc:.4f}, Phase Error: {phase_err:.4f}, Coherence Loss: {coherence_loss:.4f}, Corr Metric: {corr_metric_mean:.4f}±{corr_metric_std:.4f}, KDE Loss: {kde_loss:.4f}\n"
             f"{scale_info}",
             fontsize=10,
         )
@@ -241,10 +227,13 @@ class MonitorValReconstruction(Callback):
             pl_module.logger.experiment.log(  # type: ignore[attr-defined]
                 {
                     "val_reconstructions": wandb.Image(fig),
-                    "val_batch/slc_log_mse": mse_slc,
-                    "val_batch/rcmc_log_mae": mae_rcmc,
-                    "val_batch/slc_recon_phys_max": slc_r_max,
-                    "val_batch/slc_target_phys_max": slc_t_max,
+                    "val_batch/psnr_slc": psnr_slc,
+                    "val_batch/ssim_slc": ssim_slc,
+                    "val_batch/phase_error": phase_err,
+                    "val_batch/coherence_loss": coherence_loss,
+                    "val_batch/correlation_metric_mean": corr_metric_mean.item(),
+                    "val_batch/correlation_metric_std": corr_metric_std.item(),
+                    "val_batch/kde_loss": kde_loss,
                     # F6: x_hat value distribution — detects collapse or saturation
                     "val_batch/x_hat_histogram": wandb.Histogram(
                         output.x_hat.detach().cpu().numpy().ravel()
