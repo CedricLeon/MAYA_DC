@@ -165,6 +165,48 @@ actually available locally.  The warning output (`[WARN] Skipping '…': could
 not open store offline (metadata-only download?). …`) is always visible (not
 gated on `verbose`) so users can identify which products need re-downloading.
 
+### BUG 27 — `NormalizationModule` applied to complex arrays → grey-noise visualisations
+
+**File:** `Maya4/maya4/dataloader.py`
+**Root cause:** `SARZarrDataset.__getitem__` applied `SARTransform` to the
+complex numpy array *before* splitting into real/imag channels.
+`NormalizationModule.forward` computes `(x − min) / (max − min)` on the raw
+complex value; in numpy `(a+bj − (−3000)) / 6000` is evaluated as
+`(a+3000)/6000 + (b/6000)j`.  Only the real part is shifted; the imaginary
+part ends up in `[−0.5, 0.5]` instead of `[0, 1]`.
+After `np.stack((real, imag), axis=−1)` the batch has channel 0 ∈ `[0,1]`
+and channel 1 ∈ `[−0.5, 0.5]`.  In the callback,
+`minmax_inverse(imag_channel, RC_MIN, RC_MAX)` = `imag·6000 − 3000` = `b − 3000`
+— a −3000 DC offset.  Then `log(re² + (im−3000)²)` is nearly constant
+(≈ 16 for all pixels) → homogeneous grey images.
+**Fix:** In `SARZarrDataset.__getitem__`, swap the order: the complex→real
+split now happens **before** the transform call.  The transform therefore
+receives a real `(H, W, 2)` float32 array and `NormalizationModule` correctly
+normalises both channels to `[0, 1]`.  For `complex_valued=True` the split is
+skipped and the transform is applied to the raw complex array as before; a
+`UserWarning` is emitted at `__init__` time if `NormalizationModule` is paired
+with `complex_valued=True` (the dangerous combination).
+`src/data/maya4_datamodule.py` reverted to `NormalizationModule` (now correct).
+
+### BUG 28 — `ssim_amplitude` hard-coded `data_range = √2` wrong for physical-scale inputs
+
+**File:** `src/models/components/losses.py`, `src/callbacks/monitor_val_reconstruction.py`
+**Root cause:** `ssim_amplitude` fixed `data_range = math.sqrt(2.0)`, which is
+only correct when both real and imag channels are in `[0, 1]`.  The callback
+called `ssim_amplitude` on physical-scale tensors (amplitude ≈ GT_MAX · √2 ≈ 17 000);
+with `data_range=√2` the SSIM stability constants C₁ = (k₁·√2)² ≈ 7e-4 become
+negligible relative to signal power → SSIM converges to 1 regardless of quality.
+**Fix:** `ssim_amplitude` keeps the fixed `data_range = math.sqrt(2.0)` (correct,
+consistent across epochs).  The callback now normalises `slc_recon` back to GT
+range before calling any metrics:
+
+- `slc_recon_norm = minmax_normalize(slc_recon, GT_MIN, GT_MAX)`
+- `slc_target_core_norm = slc_batch[:, :, buf:buf+Az, :]`  *(already normalised by dataloader)*
+
+All six metric functions in the callback now receive `[0, 1]`-normalised tensors,
+making `val_batch/*` WandB scalars directly comparable to `valid/*` scalars from
+the module's `validation_step`.
+
 ### BUG 16 — `[grad-check]` false alarm on `entropy_bottleneck.quantiles`
 
 **File:** `src/models/rcmc_compress_module.py`
@@ -436,3 +478,5 @@ call entirely.
 | :--- | :--- | :--- | :--- |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |
+| F13 | **Standalone data visualization script** — `scripts/visualize_data.py`; loads patches through the MAYA4 dataloader (same pipeline as training), prints histograms of raw zarr values vs normalised channels, log-intensity images for RCMC and SLC, and amplitude images side-by-side.  Accepts CLI args: `--parts`, `--patch_size`, `--buffer`, `--n_patches`. | High | §Dataset validation |
+| F14 | **Fixed cherry-picked patch callback** — `src/callbacks/monitor_fixed_patch.py`; loads a pre-selected large RCMC+SLC patch from disk at `on_fit_start`, passes it through the model every N epochs, and logs RCMC input, RCMC reconstruction, SLC reconstruction, and SLC ground truth as a WandB image panel.  Provides a stable, epoch-to-epoch visual reference independent of random batch composition. | High | §Dataset validation |
