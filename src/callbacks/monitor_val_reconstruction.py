@@ -245,6 +245,10 @@ class MonitorValReconstruction(Callback):
                     "val_batch/rcmc_log_mae": mae_rcmc,
                     "val_batch/slc_recon_phys_max": slc_r_max,
                     "val_batch/slc_target_phys_max": slc_t_max,
+                    # F6: x_hat value distribution — detects collapse or saturation
+                    "val_batch/x_hat_histogram": wandb.Histogram(
+                        output.x_hat.detach().cpu().numpy().ravel()
+                    ),
                 },
                 step=trainer.global_step,
             )
