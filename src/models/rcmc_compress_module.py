@@ -40,6 +40,7 @@ class RCMCDCmodule(lightning.LightningModule):
         aux_optimizer: torch.optim.Optimizer,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler],
         azimuth_buffer: int = 512,
+        training_mode: str = "slc",
         gradient_clip_norm: float = 1.0,
         compile: bool = False,
     ):
@@ -53,6 +54,11 @@ class RCMCDCmodule(lightning.LightningModule):
             scheduler: LR scheduler (ReduceLROnPlateau recommended).
             azimuth_buffer: Buffer size in azimuth; must satisfy
                 ``(patch_size[0] + 2 * azimuth_buffer) % 16 == 0``.
+            training_mode: ``"slc"`` (default) trains on the SLC domain via
+                azimuth compression.  ``"rcmc"`` (F8) trains on the RCMC domain:
+                ``x_hat`` is trimmed and compared directly to ``rcmc_target``
+                with no azimuth compression.  Useful for debugging and for
+                products that lack ephemeris / metadata.
             gradient_clip_norm: Max gradient norm for clipping.
             compile: Compile the model with ``torch.compile``.
         """
@@ -175,9 +181,50 @@ class RCMCDCmodule(lightning.LightningModule):
         return loss_dict, slc_recon, slc_target
 
     # ------------------------------------------------------------------
+    def forward_no_az_compression(self, batch) -> Tuple[Dict[str, Any], Tensor, Tensor]:
+        """Forward pass in RCMC domain — no azimuth compression (F8).
+
+        Compares ``x_hat`` (buffer-trimmed decoder output) directly to
+        ``rcmc_target`` (the normalised RCMC core) without running
+        ``full_azimuth_compress_batch``.  Enables training on products that
+        lack ephemeris / metadata, and simplifies debugging.
+
+        Returns:
+            loss_dict:    Output of the criterion (keys: ``loss``, ``rate``, ...).
+            x_hat_core:   Reconstructed RCMC core (buffer trimmed), normalised,
+                          shape ``(B, 2, Az, Rg)``.
+            rcmc_target:  Ground-truth RCMC core, normalised, shape ``(B, 2, Az, Rg)``.
+        """
+        rcmc_input, _slc_target, rcmc_target, _metadata_list, _ephemeris_list, _coords_list = (
+            self._extract_from_batch(batch)
+        )
+
+        output = self.forward(rcmc_input)
+
+        # Trim azimuth buffer so x_hat_core matches rcmc_target shape
+        buffer = self.hparams.azimuth_buffer  # type: ignore[attr-defined]
+        _B, _C, Az, _Rg = rcmc_input.shape
+        Az_core = Az - 2 * buffer
+        x_hat_core = output.x_hat[:, :, buffer : buffer + Az_core, :]
+
+        criterion_input = ForwardOutput(x_hat=x_hat_core, likelihoods=output.likelihoods)
+        loss_dict = self.criterion(criterion_input, rcmc_target)
+        return loss_dict, x_hat_core, rcmc_target
+
+    def _forward_step(self, batch) -> Tuple[Dict[str, Any], Tensor, Tensor]:
+        """Dispatch to the correct forward path based on ``training_mode``.
+
+        * ``"slc"``  → method:`forward_with_az_compression` (default)
+        * ``"rcmc"`` → method:`forward_no_az_compression` (F8)
+        """
+        if self.hparams.training_mode == "rcmc":  # type: ignore[attr-defined]
+            return self.forward_no_az_compression(batch)
+        return self.forward_with_az_compression(batch)
+
+    # ------------------------------------------------------------------
     def training_step(self, batch, batch_idx):
         """Full training step with manual optimization."""
-        criterion, _slc_recon, _slc_target = self.forward_with_az_compression(batch)
+        criterion, _recon, _target = self._forward_step(batch)
 
         # Main network backward
         optimizers = self.optimizers()
@@ -225,15 +272,19 @@ class RCMCDCmodule(lightning.LightningModule):
 
     # ------------------------------------------------------------------
     def validation_step(self, batch, batch_idx):
-        """Validation step with azimuth compression and quality metrics (F2, F3)."""
-        criterion, slc_recon, slc_target = self.forward_with_az_compression(batch)
+        """Validation step with quality metrics (F2, F3, F9).
+
+        In ``"slc"`` mode metrics are on the SLC domain.
+        In ``"rcmc"`` mode (F8) metrics are on the RCMC domain.
+        """
+        criterion, recon, target = self._forward_step(batch)
         self._log_metrics("valid", criterion, self.net.aux_loss().item())
 
         # Quality metrics — computed on detached tensors (no-grad context from Lightning)
-        corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
-        psnr = psnr_amplitude(slc_recon, slc_target)
-        ssim = ssim_amplitude(slc_recon, slc_target)
-        phase_mean, phase_std = phase_preservation_metric(slc_recon, slc_target)
+        corr_mean, corr_std = complex_correlation_metric(recon, target)
+        psnr = psnr_amplitude(recon, target)
+        ssim = ssim_amplitude(recon, target)
+        phase_mean, phase_std = phase_preservation_metric(recon, target)
         self.log_dict(
             {
                 "valid/complex_corr_mean": corr_mean,
@@ -257,13 +308,13 @@ class RCMCDCmodule(lightning.LightningModule):
     def test_step(self, batch, batch_idx):
         """Test step with likelihoods evaluation and quality metrics (F2, F3)."""
         # @TODO: transform this classic testing that uses likelihoods into real compression
-        criterion, slc_recon, slc_target = self.forward_with_az_compression(batch)
+        criterion, recon, target = self._forward_step(batch)
         self._log_metrics("test", criterion, self.net.aux_loss().item())
 
-        corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
-        psnr = psnr_amplitude(slc_recon, slc_target)
-        ssim = ssim_amplitude(slc_recon, slc_target)
-        phase_mean, phase_std = phase_preservation_metric(slc_recon, slc_target)
+        corr_mean, corr_std = complex_correlation_metric(recon, target)
+        psnr = psnr_amplitude(recon, target)
+        ssim = ssim_amplitude(recon, target)
+        phase_mean, phase_std = phase_preservation_metric(recon, target)
         self.log_dict(
             {
                 "test/complex_corr_mean": corr_mean,

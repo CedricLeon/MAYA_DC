@@ -114,6 +114,7 @@ tensorboard --logdir logs/
 | `delta_kde` | `1.0` | Weight for KDE distribution term |
 | `delta_coherence` | `1.0` | Weight for phase coherence term |
 | `azimuth_buffer` | `512` | Must match `data.azimuth_buffer` |
+| `training_mode` | `"slc"` | `"slc"`: train in SLC domain via azimuth compression; `"rcmc"`: train in RCMC domain, no azimuth compression (F8) |
 
 ---
 

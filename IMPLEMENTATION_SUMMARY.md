@@ -260,6 +260,22 @@ to the existing WandB log call at the end of each monitored validation batch.
 Displays the full value distribution of the decoder output, making collapse
 (all zeros) or saturation (values at `±1`) immediately visible.
 
+### IMPROVE 23 — RCMC-domain training mode (F8)
+
+**Files:** `src/models/rcmc_compress_module.py`, `configs/model/rcmc_compress.yaml`
+**Change:**
+
+- Added `forward_no_az_compression` method to `RCMCCompressModule`.  Trims the
+  azimuth buffer from `x_hat` and compares it directly to `rcmc_target`
+  (normalised RCMC core), skipping `full_azimuth_compress_batch` entirely.
+- Added `_forward_step` dispatch method: routes to `forward_with_az_compression`
+  (default `"slc"` mode) or `forward_no_az_compression` (`"rcmc"` mode).  All
+  three steps (`training_step`, `validation_step`, `test_step`) now call
+  `_forward_step`; quality metrics are computed in whichever domain is active.
+- Added `training_mode: "slc"` parameter to `RCMCDCmodule.__init__` and to
+  `configs/model/rcmc_compress.yaml`.  Override with `model.training_mode=rcmc`
+  to bypass azimuth compression.
+
 ### IMPROVE 24 — Phase preservation metric at validation/test (F9)
 
 **Files:** `src/models/components/losses.py`, `src/models/rcmc_compress_module.py`
@@ -341,14 +357,13 @@ which are *standard deviations* — they must be positive.  Feeding the hyperpri
 is preserved in the main latent path and used by `gaussian_conditional`.  This is
 correct and intentional — do not change.
 
-### `rcmc_target` extracted but not yet used in loss
+### `rcmc_target` in the two training modes
 
-`_extract_from_batch` returns `rcmc_target` (the trimmed RCMC core).  It is kept
-for future **F8**: a separate RCMC-domain training mode that skips azimuth
-compression entirely and compares `x_hat` directly to `rcmc_target`.  This is
-not just an extra loss term — it requires a new `forward_no_az_compression` path
-in `RCMCCompressModule` that bypasses `full_azimuth_compress_batch` altogether.
-The benefit: enables training on products that lack ephemeris/metadata.
+`_extract_from_batch` always returns `rcmc_target` (the trimmed, normalised RCMC
+core).  In `"slc"` mode it is discarded.  In `"rcmc"` mode (F8),
+`forward_no_az_compression` passes it as the criterion target — bypassing
+`full_azimuth_compress_batch` entirely.  Select the mode via
+`model.training_mode` in the Hydra config.
 
 ### H filter cache (F7)
 
@@ -379,6 +394,5 @@ call entirely.
 
 | ID | Feature | Priority | Track |
 | :--- | :--- | :--- | :--- |
-| F8 | **RCMC-domain training mode** — skip azimuth compression in the training loop; compare `x_hat` (trimmed, normalised) directly to `rcmc_target` (normalised RCMC input). Requires a new `forward_no_az_compression` path in `RCMCCompressModule`. Enables training on products without ephemeris/metadata | Low | §Model architecture |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |

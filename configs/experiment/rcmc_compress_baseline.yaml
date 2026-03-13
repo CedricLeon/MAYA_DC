@@ -52,6 +52,7 @@ data:
 
 # Model configuration
 model:
+  training_mode: "rcmc"
   azimuth_buffer: ${azimuth_buffer}
   criterion:
     # ───────── Simple MSE Loss ─────────

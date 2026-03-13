@@ -42,5 +42,6 @@ scheduler:
   patience: 5
 
 # Training
+training_mode: "slc"  # "slc": train via azimuth compression on SLC domain | "rcmc": train on RCMC domain directly, no az. compression (F8)
 gradient_clip_norm: 1.0
 compile: False
