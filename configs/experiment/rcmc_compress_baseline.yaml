@@ -52,16 +52,16 @@ data:
 
 # Model configuration
 model:
-  training_mode: "rcmc"
+  training_mode: "slc"
   azimuth_buffer: ${azimuth_buffer}
   criterion:
-    # ───────── Simple MSE Loss ─────────
-    _target_: src.models.components.losses.SimpleMSELoss
-    # # ───────── Compound Compression Loss ─────────
-    # _target_: src.models.components.losses.CompoundCompressionLoss
-    # delta_kde: 1
-    # delta_coherence: 1
-    # num_kde_bins: 100
+    # # ───────── Simple MSE Loss ─────────
+    # _target_: src.models.components.losses.SimpleMSELoss
+    # ───────── Compound Compression Loss ─────────
+    _target_: src.models.components.losses.CompoundCompressionLoss
+    delta_kde: 1
+    delta_coherence: 1
+    num_kde_bins: 100
     # ───────── Common parameters ─────────
     lmbda: 10  # Rate-distortion tradeoff
     patch_size: ${patch_size}

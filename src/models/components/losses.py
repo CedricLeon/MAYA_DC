@@ -86,18 +86,17 @@ def ssim_amplitude(pred: Tensor, target: Tensor) -> Tensor:
     Uses the torchmetrics SSIM implementation.  ``data_range`` is fixed to
     ``√2`` — the theoretical maximum amplitude when both channels are
     normalised to ``[0, 1]`` (real² + imag² ≤ 2).  Using a fixed value
-    makes SSIM scores comparable across batches and epochs; a per-batch
-    adaptive ``amax`` would shift the stability constants and produce
-    incomparable values.
+    makes SSIM scores comparable across batches and epochs.
 
     .. note::
-        Both inputs must be in the same normalised domain, e.g. after
-        ``minmax_normalize(., GT_MIN, GT_MAX)`` so channels are in ``[0, 1]``.
+        Both inputs **must** be in the normalised domain, i.e. after
+        ``minmax_normalize``, so channels are in ``[0, 1]``.  Passing
+        physical-scale tensors will produce meaningless values because the
+        SSIM stability constants are calibrated to ``data_range``.
 
     Args:
-        pred:   ``(B, 2, H, W)`` float — real/imag channels.
-        target: ``(B, 2, H, W)`` float — real/imag channels.
-        eps:    Regulariser added before taking the square root of the amplitude.
+        pred:   ``(B, 2, H, W)`` float — real/imag channels, normalised to [0, 1].
+        target: ``(B, 2, H, W)`` float — real/imag channels, normalised to [0, 1].
 
     Returns:
         Scalar mean SSIM in [0, 1] over the batch.
@@ -105,7 +104,7 @@ def ssim_amplitude(pred: Tensor, target: Tensor) -> Tensor:
     pred_linA = phys_to_linA_torch(pred).unsqueeze(1)  # (B,1,H,W)
     target_linA = phys_to_linA_torch(target).unsqueeze(1)  # (B,1,H,W)
 
-    # Fixed data_range: channels normalised to [0,1] ⇒ max amplitude = sqrt(2).
+    # Fixed data_range: channels normalised to [0,1] => max amplitude = sqrt(2).
     data_range = math.sqrt(2.0)
     result = ssim_fn(pred_linA, target_linA, data_range=data_range, return_full_image=False)
     return result if isinstance(result, Tensor) else result[0]

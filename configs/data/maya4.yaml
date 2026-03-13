@@ -16,9 +16,9 @@ val_parts: ["PT1"]
 test_parts: ["PT4"]
 
 # Filtering
-years: [2023]
-polarizations: ["hh"]
-stripmap_modes: [1, 2, 3]
+years: [2023, 2024] # [2023, 2024]
+polarizations: ["hh"] # ["hh", "hv", "vh", "vv"]
+stripmap_modes: [1, 2, 3] # [1,2,3] for narrow swaths/higher resolution, [4,5,6] for wider swaths
 
 # Dataset size control
 # max_products_*: number of zarr products to draw patches from

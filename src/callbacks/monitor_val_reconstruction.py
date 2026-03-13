@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from lightning import Callback, LightningModule, Trainer
-from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN, minmax_inverse
+from maya4 import GT_MAX, GT_MIN, RC_MAX, RC_MIN, minmax_inverse, minmax_normalize
 from torch import Tensor
 
 from src.models.components.losses import (
@@ -200,13 +200,21 @@ class MonitorValReconstruction(Callback):
                 cbar.ax.tick_params(labelsize=6)
 
         # ── Summary metrics for the figure title ──────────────────────
-        # Compute all metrics in physical scale: psnr_amplitude, ssim_amplitude, phase_preservation_metric, complex_correlation_metric, complex_coherence_loss, kde_histogram_loss, etc.
-        psnr_slc = psnr_amplitude(slc_recon, slc_target_core).item()
-        ssim_slc = ssim_amplitude(slc_recon, slc_target_core).item()
-        phase_err = phase_preservation_metric(slc_recon, slc_target_core)[0].item()
-        coherence_loss = complex_coherence_loss(slc_recon, slc_target_core).item()
-        corr_metric_mean, corr_metric_std = complex_correlation_metric(slc_recon, slc_target_core)
-        kde_loss = kde_histogram_loss(slc_recon, slc_target_core).item()
+        # Metrics are computed on normalised [0,1] tensors so they are
+        # directly comparable to the module's validation_step scalars
+        # (where forward_with_az_compression returns normalised SLC).
+        # slc_batch is already normalised by the dataloader; slc_recon is
+        # physical-scale and must be re-normalised before calling metrics.
+        slc_recon_norm = minmax_normalize(slc_recon, GT_MIN, GT_MAX)
+        slc_target_core_norm = slc_batch[:, :, az_buffer : az_buffer + Az_core, :]
+        psnr_slc = psnr_amplitude(slc_recon_norm, slc_target_core_norm).item()
+        ssim_slc = ssim_amplitude(slc_recon_norm, slc_target_core_norm).item()
+        phase_err = phase_preservation_metric(slc_recon_norm, slc_target_core_norm)[0].item()
+        coherence_loss = complex_coherence_loss(slc_recon_norm, slc_target_core_norm).item()
+        corr_metric_mean, corr_metric_std = complex_correlation_metric(
+            slc_recon_norm, slc_target_core_norm
+        )
+        kde_loss = kde_histogram_loss(slc_recon_norm, slc_target_core_norm).item()
 
         fig.suptitle(
             f"Validation epoch {trainer.current_epoch} — "
