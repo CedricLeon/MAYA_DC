@@ -9,8 +9,8 @@ from torch import Tensor
 from src.models.components.losses import (
     complex_correlation_metric,
     phase_preservation_metric,
-    psnr_magnitude,
-    ssim_magnitude,
+    psnr_amplitude,
+    ssim_amplitude,
 )
 from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
 from src.utils.sarpyx_azimuth_compression import (
@@ -231,15 +231,15 @@ class RCMCDCmodule(lightning.LightningModule):
 
         # Quality metrics — computed on detached tensors (no-grad context from Lightning)
         corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
-        psnr = psnr_magnitude(slc_recon, slc_target)
-        ssim = ssim_magnitude(slc_recon, slc_target)
+        psnr = psnr_amplitude(slc_recon, slc_target)
+        ssim = ssim_amplitude(slc_recon, slc_target)
         phase_mean, phase_std = phase_preservation_metric(slc_recon, slc_target)
         self.log_dict(
             {
                 "valid/complex_corr_mean": corr_mean,
                 "valid/complex_corr_std": corr_std,
-                "valid/psnr_mag": psnr,
-                "valid/ssim_mag": ssim,
+                "valid/psnr_amp": psnr,
+                "valid/ssim_amp": ssim,
                 "valid/phase_err_mean": phase_mean,
                 "valid/phase_err_std": phase_std,
             },
@@ -261,15 +261,15 @@ class RCMCDCmodule(lightning.LightningModule):
         self._log_metrics("test", criterion, self.net.aux_loss().item())
 
         corr_mean, corr_std = complex_correlation_metric(slc_recon, slc_target)
-        psnr = psnr_magnitude(slc_recon, slc_target)
-        ssim = ssim_magnitude(slc_recon, slc_target)
+        psnr = psnr_amplitude(slc_recon, slc_target)
+        ssim = ssim_amplitude(slc_recon, slc_target)
         phase_mean, phase_std = phase_preservation_metric(slc_recon, slc_target)
         self.log_dict(
             {
                 "test/complex_corr_mean": corr_mean,
                 "test/complex_corr_std": corr_std,
-                "test/psnr_mag": psnr,
-                "test/ssim_mag": ssim,
+                "test/psnr_amp": psnr,
+                "test/ssim_amp": ssim,
                 "test/phase_err_mean": phase_mean,
                 "test/phase_err_std": phase_std,
             },

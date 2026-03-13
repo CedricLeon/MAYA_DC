@@ -10,6 +10,7 @@ from torch import Tensor
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim_fn
 
 from src.models.components.scale_hyperprior import ForwardOutput, Likelihoods
+from src.utils.processing_utils import EPS, phys_to_linA_torch
 
 # ---------------------------------------------------------------------------
 # Quality metrics (no gradient required; used at validation / test time)
@@ -48,8 +49,8 @@ def complex_correlation_metric(pred: Tensor, target: Tensor) -> Tuple[Tensor, Te
     return gamma.mean(), gamma.std()
 
 
-def psnr_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    """Peak Signal-to-Noise Ratio on magnitude images, averaged over the batch.
+def psnr_amplitude(pred: Tensor, target: Tensor, eps: float = EPS) -> Tensor:
+    """Peak Signal-to-Noise Ratio on amplitude images, averaged over the batch.
 
     Each image uses its own ``data_range = max(|target|)`` so the metric is
     scale-invariant to different patches (F3).
@@ -67,23 +68,23 @@ def psnr_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     Returns:
         Scalar mean PSNR [dB] over the batch.
     """
-    pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + eps)  # (B, H, W)
-    target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + eps)  # (B, H, W)
+    pred_linA = phys_to_linA_torch(pred)  # (B, H, W)
+    target_linA = phys_to_linA_torch(target)  # (B, H, W)
 
-    B = pred_mag.shape[0]
-    data_range = target_mag.reshape(B, -1).amax(dim=1)  # (B,)
+    B = pred_linA.shape[0]
+    data_range = target_linA.reshape(B, -1).amax(dim=1)  # (B,)
     mse_per_image = (
-        F.mse_loss(pred_mag, target_mag, reduction="none").reshape(B, -1).mean(dim=1)
+        F.mse_loss(pred_linA, target_linA, reduction="none").reshape(B, -1).mean(dim=1)
     )  # (B,)
     psnr = 10.0 * torch.log10(data_range**2 / (mse_per_image + eps))  # (B,)
     return psnr.mean()
 
 
-def ssim_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    """Structural Similarity Index on magnitude images, averaged over the batch (F3).
+def ssim_amplitude(pred: Tensor, target: Tensor) -> Tensor:
+    """Structural Similarity Index on amplitude images, averaged over the batch (F3).
 
     Uses the torchmetrics SSIM implementation.  ``data_range`` is fixed to
-    ``√2`` — the theoretical maximum magnitude when both channels are
+    ``√2`` — the theoretical maximum amplitude when both channels are
     normalised to ``[0, 1]`` (real² + imag² ≤ 2).  Using a fixed value
     makes SSIM scores comparable across batches and epochs; a per-batch
     adaptive ``amax`` would shift the stability constants and produce
@@ -96,18 +97,17 @@ def ssim_magnitude(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     Args:
         pred:   ``(B, 2, H, W)`` float — real/imag channels.
         target: ``(B, 2, H, W)`` float — real/imag channels.
-        eps:    Regulariser added before taking the square root of the magnitude.
+        eps:    Regulariser added before taking the square root of the amplitude.
 
     Returns:
         Scalar mean SSIM in [0, 1] over the batch.
     """
-    pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + eps).unsqueeze(1)  # (B,1,H,W)
-    target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + eps).unsqueeze(1)  # (B,1,H,W)
+    pred_linA = phys_to_linA_torch(pred).unsqueeze(1)  # (B,1,H,W)
+    target_linA = phys_to_linA_torch(target).unsqueeze(1)  # (B,1,H,W)
 
-    # Fixed data_range: channels normalised to [0,1] ⇒ max magnitude = sqrt(2).
+    # Fixed data_range: channels normalised to [0,1] ⇒ max amplitude = sqrt(2).
     data_range = math.sqrt(2.0)
-    result = ssim_fn(pred_mag, target_mag, data_range=data_range, return_full_image=False)
-    # ssim_fn return type is Tensor | tuple[Tensor, Tensor]; return_full_image=False → Tensor.
+    result = ssim_fn(pred_linA, target_linA, data_range=data_range, return_full_image=False)
     return result if isinstance(result, Tensor) else result[0]
 
 
@@ -226,20 +226,20 @@ def kde_histogram_loss(pred: Tensor, target: Tensor, num_bins: int = 100) -> Ten
     Returns:
         Scalar L1 distance between KDEs, averaged over the batch.
     """
-    # Convert to magnitude
+    # Convert to linear amplitude
     if torch.is_complex(pred):
-        pred_mag = pred.abs()
-        target_mag = target.abs()
+        pred_linA = pred.abs()
+        target_linA = target.abs()
     elif pred.shape[1] == 2:
-        pred_mag = torch.sqrt(pred[:, 0] ** 2 + pred[:, 1] ** 2 + 1e-8)
-        target_mag = torch.sqrt(target[:, 0] ** 2 + target[:, 1] ** 2 + 1e-8)
+        pred_linA = phys_to_linA_torch(pred)
+        target_linA = phys_to_linA_torch(target)
     else:
-        pred_mag = pred.abs()
-        target_mag = target.abs()
+        pred_linA = pred.abs()
+        target_linA = target.abs()
 
-    B = pred_mag.shape[0]
-    pred_flat = pred_mag.view(B, -1)
-    target_flat = target_mag.view(B, -1)
+    B = pred_linA.shape[0]
+    pred_flat = pred_linA.view(B, -1)
+    target_flat = target_linA.view(B, -1)
 
     total_loss = torch.tensor(0.0, device=pred.device)
 

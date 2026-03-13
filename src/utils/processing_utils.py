@@ -4,6 +4,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
+from torch import Tensor
+
+EPS = 1e-2
 
 
 # ---------------------------------------------------------
@@ -17,6 +21,33 @@ def log_step(name):
 def log_info(msg):
     """Logs an informational message with indentation."""
     print(f"    {msg}")
+
+
+# ---------------------------------------------------------
+# Data Transformations
+# ---------------------------------------------------------
+
+
+def phys_to_logI_torch(t: Tensor, eps: float = EPS) -> Tensor:
+    """Convert ``(B, 2, H, W)`` real/imag tensor to ``(B, H, W)`` log-Intensity.
+
+    ``log_intensity = log(real² + imag² + ε)``
+    """
+    return torch.log(t[:, 0] ** 2 + t[:, 1] ** 2 + eps)  # (B, H, W)
+
+
+def phys_to_linA_torch(t: Tensor) -> Tensor:
+    """Convert ``(B, 2, H, W)`` real/imag tensor to ``(B, H, W)`` linear amplitude.
+
+    ``linear_amplitude = sqrt(real² + imag² + ε)``
+    """
+    return torch.sqrt(t[:, 0] ** 2 + t[:, 1] ** 2)  # (B, H, W)
+
+
+def clip_mean_std_numpy(img: np.ndarray, factor: float = 3.0) -> np.ndarray:
+    """Clip ``img`` to ``mean ± factor * std`` for better contrast in visualizations."""
+    mu, sigma = img.mean(), img.std()
+    return np.clip(img, mu - factor * sigma, mu + factor * sigma)
 
 
 # ---------------------------------------------------------

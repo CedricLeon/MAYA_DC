@@ -210,15 +210,15 @@ quality is noticeably lower).
 - Added three standalone metric functions to `losses.py`:
   - `complex_correlation_metric(pred, target)` — returns `(mean, std)` of
     per-image global coherence $|\langle\hat{s}, s^*\rangle| / (\|\hat{s}\|\cdot\|s\|)$.
-  - `psnr_magnitude(pred, target)` — PSNR [dB] on magnitude images with
+  - `psnr_amplitude(pred, target)` — PSNR [dB] on amplitude images with
     per-image `data_range = max(|target|)`.
-  - `ssim_magnitude(pred, target)` — SSIM on magnitude images via
+  - `ssim_amplitude(pred, target)` — SSIM on amplitude images via
     `torchmetrics.functional.image.structural_similarity_index_measure`.
 - `forward_with_az_compression` now returns a 3-tuple
   `(loss_dict, slc_recon, slc_target)` instead of just `loss_dict`.
   Training step discards the tensors; validation and test steps use them.
 - `validation_step` and `test_step` log four additional scalars per epoch:
-  `valid/complex_corr_mean`, `valid/complex_corr_std`, `valid/psnr_mag`, `valid/ssim_mag`
+  `valid/complex_corr_mean`, `valid/complex_corr_std`, `valid/psnr_amp`, `valid/ssim_amp`
   (and the matching `test/` variants).
 
 ### IMPROVE 19 — Per-module gradient norm logging (F5)
