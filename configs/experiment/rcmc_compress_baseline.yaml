@@ -28,7 +28,7 @@ azimuth_buffer: 512
 
 # Trainer configuration
 trainer:
-  max_epochs: 1
+  max_epochs: 50
   accelerator: "gpu"
   devices: 1
   precision: "32-true"  # cuFFT needs power-of-2 sizes for "16-mixed"
@@ -43,9 +43,7 @@ data:
   patch_size: ${patch_size}
   batch_size: 4
   num_workers: 4
-  # Use 10 products × 50 patches/product = ~500 patches/epoch for a quick first run.
-  # Scale up max_products_train for full training (e.g., 200 products, samples_per_prod=0 for all patches).
-  max_products_train: 5
+  max_products_train: 7
   max_products_val: 1
   max_products_test: 2
   samples_per_prod: 100   # patches per product per epoch; 0 = all

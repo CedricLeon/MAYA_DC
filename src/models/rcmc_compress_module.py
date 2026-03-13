@@ -66,8 +66,11 @@ class RCMCDCmodule(lightning.LightningModule):
         # Two optimizers → manual optimization
         self.automatic_optimization = False
 
-        # F4: Accumulator for the RD-curve scatter plot (grows one row per val epoch)
-        self._rd_table: Any = None  # wandb.Table; lazy init to avoid importing wandb at load time
+        # F4: Accumulator for the RD-curve scatter plot (one row per val epoch).
+        # Stored as a plain Python list so we can build a *fresh* wandb.Table each epoch.
+        # WandB marks a Table immutable once logged — mutating it after that produces a
+        # warning and the update is silently dropped.
+        self._rd_rows: List[Tuple[int, float, float]] = []
 
     # ------------------------------------------------------------------
     def forward(self, x: Tensor) -> ForwardOutput:
@@ -316,13 +319,16 @@ class RCMCDCmodule(lightning.LightningModule):
         ):
             import wandb  # local import — optional dep
 
-            if self._rd_table is None:
-                self._rd_table = wandb.Table(columns=["epoch", "rate_bpp", "distortion"])
-            self._rd_table.add_data(self.current_epoch, float(rate), float(distortion))
+            self._rd_rows.append((self.current_epoch, float(rate), float(distortion)))
+            # Rebuild a brand-new Table every epoch — WandB freezes a Table once
+            # it has been logged, so we must never mutate the previously logged one.
+            rd_table = wandb.Table(columns=["epoch", "rate_bpp", "distortion"])
+            for row in self._rd_rows:
+                rd_table.add_data(*row)
             self.logger.experiment.log(  # type: ignore[attr-defined]
                 {
                     "valid/rd_scatter": wandb.plot.scatter(
-                        self._rd_table,
+                        rd_table,
                         "rate_bpp",
                         "distortion",
                         title="Rate–Distortion curve",
