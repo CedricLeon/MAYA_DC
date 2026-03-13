@@ -236,6 +236,22 @@ quality is noticeably lower).
   logged as `val_batch/slc_recon_phys_max` and `val_batch/slc_target_phys_max` to
   WandB, enabling automatic detection of scale explosions across training.
 
+### IMPROVE 21 — Rate–Distortion scatter plot in WandB (F4)
+
+**File:** `src/models/rcmc_compress_module.py`
+**Change:** Added `self._rd_table` (lazy `wandb.Table`) in `__init__`.  Each
+`on_validation_epoch_end` appends a `(epoch, rate_bpp, distortion)` row and
+logs `valid/rd_scatter` via `wandb.plot.scatter`.  The table grows over time
+so the full training trajectory is visible in a single WandB panel.
+
+### IMPROVE 22 — `x_hat` histogram to WandB (F6)
+
+**File:** `src/callbacks/monitor_val_reconstruction.py`
+**Change:** Added `val_batch/x_hat_histogram: wandb.Histogram(output.x_hat.ravel())`
+to the existing WandB log call at the end of each monitored validation batch.
+Displays the full value distribution of the decoder output, making collapse
+(all zeros) or saturation (values at `±1`) immediately visible.
+
 ### IMPROVE 19 — Per-module gradient norm logging (F5)
 
 **File:** `src/models/rcmc_compress_module.py`

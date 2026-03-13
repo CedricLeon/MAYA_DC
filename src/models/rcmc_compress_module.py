@@ -283,7 +283,7 @@ class RCMCDCmodule(lightning.LightningModule):
 
     # ------------------------------------------------------------------
     def on_validation_epoch_end(self) -> None:
-        """Step ReduceLROnPlateau with the monitored validation metric.
+        """Step ReduceLROnPlateau and log RD-curve scatter point to WandB (F4).
 
         FIX 11: only one scheduler step, in the right place, with the metric.
         """
@@ -292,6 +292,34 @@ class RCMCDCmodule(lightning.LightningModule):
             val_loss = self.trainer.callback_metrics.get("valid/loss")
             if val_loss is not None:
                 sch.step(val_loss)
+
+        # F4 — append one point to the RD scatter every validation epoch
+        metrics = self.trainer.callback_metrics
+        rate = metrics.get("valid/rate")
+        distortion = metrics.get("valid/distortion")
+        if (
+            rate is not None
+            and distortion is not None
+            and self.logger is not None
+            and hasattr(self.logger, "experiment")
+            and hasattr(self.logger.experiment, "log")  # type: ignore[union-attr]
+        ):
+            import wandb  # local import — optional dep
+
+            if self._rd_table is None:
+                self._rd_table = wandb.Table(columns=["epoch", "rate_bpp", "distortion"])
+            self._rd_table.add_data(self.current_epoch, float(rate), float(distortion))
+            self.logger.experiment.log(  # type: ignore[attr-defined]
+                {
+                    "valid/rd_scatter": wandb.plot.scatter(
+                        self._rd_table,
+                        "rate_bpp",
+                        "distortion",
+                        title="Rate–Distortion curve",
+                    )
+                },
+                step=self.global_step,
+            )
 
     # ------------------------------------------------------------------
     def configure_optimizers(self):
