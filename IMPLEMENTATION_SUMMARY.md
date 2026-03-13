@@ -150,6 +150,21 @@ stays entirely in PyTorch so `d(SLC)/d(x̂) = IFFT(H)` is propagated correctly.
 `torch.complex()` / `.real`/`.imag` for reliable autograd across non-contiguous
 channel slices.
 
+### BUG 25 — `online=False` crashes on metadata-only Zarr stores
+
+**File:** `Maya4/maya4/dataloader.py`
+**Root cause:** In *online* mode `_initialize_stores` skips store opening entirely
+(lazy access on demand); incomplete files never trigger an error.  In *offline*
+mode it calls `_append_file_to_stores` for every file, which calls `open_archive`,
+which raises `RuntimeError` when a Zarr group is empty (metadata downloaded but
+no data chunks).  The `except` block re-raised that error instead of skipping.
+**Fix:** Changed the `except Exception` clause (for both `zarr` and `dask`
+backends) to print a `[WARN]` message and drop the file from `self._files`
+instead of re-raising.  Training proceeds with the complete files that are
+actually available locally.  The warning output (`[WARN] Skipping '…': could
+not open store offline (metadata-only download?). …`) is always visible (not
+gated on `verbose`) so users can identify which products need re-downloading.
+
 ### BUG 16 — `[grad-check]` false alarm on `entropy_bottleneck.quantiles`
 
 **File:** `src/models/rcmc_compress_module.py`

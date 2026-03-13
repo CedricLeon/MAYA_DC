@@ -40,6 +40,12 @@ python src/train.py experiment=rcmc_compress_baseline data.online=true
 
 After the first run the data is cached; switch back to `online: false`.
 
+> **Incomplete downloads:** If only metadata was downloaded for some products
+> (common after a partial/interrupted `online=true` run), `online=false` will
+> print a `[WARN] Skipping '…': could not open store offline` message for each
+> incomplete file and continue with the valid ones.  To complete the download,
+> run once more with `data.online=true`.
+
 ---
 
 ## 🎯 Training
