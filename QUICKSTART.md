@@ -145,6 +145,7 @@ src/
 
 scripts/
   sarpyx_azimuth_compression.py   ← stand-alone sarpyx compression demo
+  visualize_data.py               ← data-pipeline diagnostic (F13)
 
 configs/
   data/maya4.yaml

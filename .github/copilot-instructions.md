@@ -67,6 +67,18 @@ count_row = min(last_row_chunk * chunk_rows, full_rows)
     root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
     ```
 
+### 5. SAR Data Visualization Conventions (Critical)
+- **Display**: Always use **log-intensity**: `logI = ln(re² + im² + ε)` from `phys_to_logI_torch`.
+  Clip for contrast: `mean ± clip_factor·std` (default `clip_factor=3.0`).
+  Always use the **`viridis`** colormap. Never display raw real/imag channels or linear amplitude directly.
+- **Orientation**: **(0, 0) is at the top-left corner**. Azimuth is the **horizontal axis, left → right** (Az=0 at the left edge). Range is the **vertical axis, top → bottom** (Rg=0 at the top). Implementation: data shape is `(Az, Rg)`; transpose to `(Rg, Az)` before `imshow`, set `extent=[az_start, az_stop, rg_stop, rg_start]` (origin="upper"). No x-axis inversion needed. Use `ax.set_facecolor("black")` so non-downloaded chunks appear black.
+- **Metrics**: Always compute on **linear amplitude**: `|·| = sqrt(re² + im²)` from `phys_to_linA_torch`,
+  or on the normalised `[0, 1]` domain.
+  **Never compute PSNR, SSIM, coherence, or KDE on log-scale data.**
+- **Normalised domain `[0, 1]`**: RCMC channels normalized with `RC_MIN=-3000, RC_MAX=3000`;
+  SLC channels with `GT_MIN=-12000, GT_MAX=12000`.
+  After the BUG 27 fix, both re/im channels should sit in `[0, 1]` after the dataloader.
+
 ## External Dependencies
 - **Hydra**: Config management.
 - **PyTorch Lightning**: Training loop abstraction.

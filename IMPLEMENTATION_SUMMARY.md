@@ -372,6 +372,40 @@ Example: `SHP-gdn_s42_L0.01_slc_buf512_SAR_lr0.0001_b4_700p`
 
 The name can be overridden by setting `logger.wandb.run_name` in the config.
 
+### IMPROVE 29 — Standalone data visualisation script (F13)
+
+**File:** `scripts/visualize_data.py`
+**Change:** Created a standalone diagnostic script that loads patches through **three
+independent paths** and compares them side-by-side:
+
+1. **DataModule** — exact same `MAYA4DataModule` pipeline as training.
+2. **Manual** — zarr → real/imag split → `minmax_normalize` by hand.
+   Mirrors what we *expect* the library to do after the BUG 27 fix.
+   A printed Δ(DataModule − Manual) check flags any remaining discrepancy.
+3. **Raw physical** — zarr complex128, real/imag split, NO normalization.
+   Shows the physical value range actually stored in the zarr.
+
+Outputs two PNG figures to `logs/visualizations/` (or `--output_dir`):
+
+- **`channel_distributions.png`** — 3-row × 4-col histogram grid (rows:
+  DataModule / Manual / Raw physical).  Rows 0 and 1 must match if the
+  normalization pipeline is correct; any visible difference flags a bug.
+- **`logI_images.png`** — 3-row × n-col log-intensity grid (RCMC-DM /
+  RCMC-Manual / SLC-DM), buffer stripped, contrast-clipped, colorbars.
+  Rows 0 and 1 again must look identical.
+
+Per-channel statistics (min, max, mean, std) printed via
+`print_images_statistics` from `src/utils/logging.py`, one table per
+loading path.
+
+**Visualization convention enforced throughout:**
+
+- Display: log-intensity `logI = ln(re² + im² + ε)`, clipped to `mean ± 3σ`.
+- Metrics: linear amplitude `|·|` or normalised `[0,1]` domain — never on logI.
+
+Accepts CLI args: `--data_dir`, `--parts`, `--patch_size`, `--buffer`,
+`--n_patches`, `--max_products`, `--output_dir`, `--online`, `--clip_factor`.
+
 ---
 
 ## 🏗 Data Flow Details
@@ -420,6 +454,24 @@ or ephemeris is missing the step will raise.
 ---
 
 ## 🧭 Design Notes
+
+### SAR display orientation
+
+All SAR image plots use the following axes convention:
+
+- **(0, 0) is at the top-left corner**.
+- **Azimuth** = horizontal axis, increasing **left → right** (Az=0 at the left edge).
+- **Range** = vertical axis, increasing **top → bottom** (Rg=0 at the top).
+
+Implementation:
+
+- Data arrays have shape `(Az, Rg)`. Transpose to `(Rg, Az)` before `imshow`.
+- `extent=[az_start, az_stop, rg_stop, rg_start]` with `origin="upper"` → range grows downward, no x-axis inversion needed.
+- `ax.set_xlim(-az_max*0.03, az_max*1.03)` for padding (normal, not inverted).
+- `ax.set_ylim(rg_max*1.03, -rg_max*0.03)` inverts the y-axis so Rg=0 is at the top.
+- `ax.set_facecolor("black")` → non-downloaded chunks appear black instead of the default white background.
+
+---
 
 ### Coherence loss vs phase preservation
 
@@ -478,5 +530,3 @@ call entirely.
 | :--- | :--- | :--- | :--- |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |
-| F13 | **Standalone data visualization script** — `scripts/visualize_data.py`; loads patches through the MAYA4 dataloader (same pipeline as training), prints histograms of raw zarr values vs normalised channels, log-intensity images for RCMC and SLC, and amplitude images side-by-side.  Accepts CLI args: `--parts`, `--patch_size`, `--buffer`, `--n_patches`. | High | §Dataset validation |
-| F14 | **Fixed cherry-picked patch callback** — `src/callbacks/monitor_fixed_patch.py`; loads a pre-selected large RCMC+SLC patch from disk at `on_fit_start`, passes it through the model every N epochs, and logs RCMC input, RCMC reconstruction, SLC reconstruction, and SLC ground truth as a WandB image panel.  Provides a stable, epoch-to-epoch visual reference independent of random batch composition. | High | §Dataset validation |

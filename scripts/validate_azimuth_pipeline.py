@@ -325,7 +325,7 @@ def main():
         "Custom vs CoarseRDA diff\n(residual)",
     ]
     for ax, img, title in zip(axes[:3], imgs[:3], titles[:3]):
-        ax.imshow(img, cmap="gray", vmin=0, vmax=vmax, aspect="auto")
+        ax.imshow(img, cmap="viridis", vmin=0, vmax=vmax, aspect="auto")
         ax.set_title(title, fontsize=9)
         ax.axis("off")
     # Diff image (use symmetric colormap)
