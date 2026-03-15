@@ -545,6 +545,44 @@ catalog = json.load(open("data/product_catalog.json"))
 usable  = [e for e in catalog if e["is_usable"]]
 ```
 
+### IMPROVE 31 — Fixed cherry-picked patch callback (F14)
+
+**Files:** `src/callbacks/monitor_fixed_patch.py`, `data/fixed_patches/fogo_s6_vh_20240502.json`
+**Change:** Created `MonitorFixedPatch` callback — loads a pre-selected RCMC+SLC patch once at
+`on_fit_start`, then every `log_every_n_epochs` validation epochs runs the model on it and logs a
+comparison figure to WandB under `fixed_patch/reconstruction`.
+
+Patch coordinates come from a JSON file in `data/fixed_patches/` (selected with
+`notebooks/cherry_pick_patch.ipynb`).  The **`patch_json` parameter** makes it easy to swap
+patches without code changes.
+
+**Three hooks:**
+
+| Hook | Action |
+| :--- | :--- |
+| `on_fit_start` | Opens zarr, reads RCMC + SLC arrays in the core window and buffered window, normalises, loads + SWST-corrects metadata, caches everything on CPU |
+| `on_validation_epoch_end` | Forward pass (no grad), optional azimuth compression, logs 3–4 panel logI figure to WandB |
+| `on_test_end` | Saves `fixed_patch_<stem>_rcmc_recon_logI.png` + `…_linA.npy`, and (if SLC available) the same for SLC |
+
+**Figure panels:** RCMC input | RCMC recon | \[SLC recon\] | SLC target — SLC recon panel only
+present in `"slc"` training mode with valid ephemeris.
+
+**Known limitation:** The current cherry-pick (`fogo_s6_vh_20240502.json`) has an **empty
+ephemeris** → SLC recon panel will be omitted.  For full 4-panel output, select a product with
+valid ephemeris from PT1/PT4 using the notebook.
+
+**Usage in config:**
+
+```yaml
+callbacks:
+  monitor_fixed_patch:
+    _target_: src.callbacks.monitor_fixed_patch.MonitorFixedPatch
+    patch_json: data/fixed_patches/fogo_s6_vh_20240502.json
+    log_every_n_epochs: 10
+    clip_factor: 3.0
+    verbose: false
+```
+
 ---
 
 ## 🔮 Future Features

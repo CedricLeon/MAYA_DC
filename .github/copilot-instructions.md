@@ -112,3 +112,17 @@ You may only:
 After any non-trivial code change, update the relevant section of
 `IMPLEMENTATION_SUMMARY.md` in the same response. Do not defer documentation to
 a separate step.
+
+## `# type: ignore` Policy
+
+Use `# type: ignore[<code>]` **only** when the type error is genuinely
+unfixable with the current stubs:
+
+| Pattern | Comment tag | Reason |
+| :--- | :--- | :--- |
+| `pl_module.hparams.some_attr` | `# type: ignore[attr-defined]` | Lightning hparam stubs expose `hparams` as `dict \| Namespace`; attribute access is always flagged. |
+| `pl_module.logger.experiment.log(...)` | `# type: ignore[union-attr]` | Lightning's `logger` type is a union; the concrete WandB logger is only resolved at runtime. |
+
+**Never** use `# type: ignore` to paper over real type mismatches.
+Prefer narrowing types explicitly with `isinstance` checks or explicit casts.
+Avoid bare `# type: ignore` without an error code.

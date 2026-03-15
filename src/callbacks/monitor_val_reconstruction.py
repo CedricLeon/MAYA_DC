@@ -176,9 +176,17 @@ class MonitorValReconstruction(Callback):
 
             for col_idx, img_np in enumerate(row_imgs_clipped):
                 ax = axes[row_idx, col_idx]
+                # img_np shape is (Az, Rg) -- transpose to (Rg, Az) so azimuth
+                # runs left→right and range runs top→bottom.
                 im = ax.imshow(
-                    img_np, cmap="gray", aspect="auto", vmin=img_np.min(), vmax=img_np.max()
+                    img_np.T,
+                    cmap="viridis",
+                    aspect="auto",
+                    origin="upper",
+                    vmin=img_np.min(),
+                    vmax=img_np.max(),
                 )
+                ax.set_facecolor("black")
                 ax.axis("off")
                 if col_idx == 0:
                     # Row label on the left
@@ -234,7 +242,7 @@ class MonitorValReconstruction(Callback):
 
             pl_module.logger.experiment.log(  # type: ignore[attr-defined]
                 {
-                    "val_reconstructions": wandb.Image(fig),
+                    "val_batch/reconstructions": wandb.Image(fig),
                     "val_batch/psnr_slc": psnr_slc,
                     "val_batch/ssim_slc": ssim_slc,
                     "val_batch/phase_error": phase_err,

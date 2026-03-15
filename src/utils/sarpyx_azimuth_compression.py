@@ -235,7 +235,13 @@ def compute_azimuth_filter(
         len_az_line,
         endpoint=False,
     )
-    mean_V = np.mean(effective_velocities, axis=1)  # (az,)
+    # Scalar mean velocity over the whole patch (range- and azimuth-averaged).
+    # Using a single bulk value rather than a per-line profile avoids any
+    # shape mismatch when the metadata row count does not equal len_az_line
+    # (e.g. patch extends to the edge of the metadata extent).
+    # Orbital velocity changes < 0.1 % across a typical patch, so the bulk
+    # approximation matches the CoarseRDA "get_azimuth_filter" accuracy.
+    mean_V = float(np.mean(effective_velocities))  # scalar
 
     # Cosine of instantaneous squint angle (CoarseRDA.get_rcmc / get_azimuth_filter)
     D = np.sqrt(
