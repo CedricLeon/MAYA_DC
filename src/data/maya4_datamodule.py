@@ -44,7 +44,8 @@ from maya4 import (
     SARZarrDataset,
 )
 from maya4.normalization import NormalizationModule
-from sarpyx.processor.algorithms.constants import RANGE_DECIMATION_MAP
+
+from src.utils.processing_utils import correct_swst_range_offset
 
 # ---------------------------------------------------------------------------
 # Dataset
@@ -132,12 +133,7 @@ class RCMCSARDataset(SARZarrDataset):
         # Range (SWST) offset: if the patch doesn't start at range column 0,
         # shift the Sampling Window Start Time so CoarseRDA uses the right
         # near-range distance for its matched filter.
-        if x > 0 and "swst" in meta.columns:
-            meta_row = meta.iloc[0]
-            rgdec = meta_row.get("Range Decimation") or meta_row.get("range_decimation")
-            if rgdec is not None:
-                range_freq = float(RANGE_DECIMATION_MAP[int(rgdec)])
-                meta["swst"] = meta["swst"] + x / range_freq
+        correct_swst_range_offset(meta, x)
 
         return meta, eph
 

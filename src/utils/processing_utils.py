@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from sarpyx.processor.algorithms.constants import RANGE_DECIMATION_MAP
 from torch import Tensor
 
 EPS = 1e-2
@@ -42,6 +43,44 @@ def phys_to_linA_torch(t: Tensor) -> Tensor:
     ``linear_amplitude = sqrt(real² + imag² + ε)``
     """
     return torch.sqrt(t[:, 0] ** 2 + t[:, 1] ** 2)  # (B, H, W)
+
+
+def phys_to_logI_np(arr_2ch: np.ndarray, eps: float = EPS) -> np.ndarray:
+    """Convert a ``(2, H, W)`` real/imag float32 array to ``(H, W)`` log-intensity.
+
+    ``logI = log(re² + im² + ε)``  — numpy counterpart of ``phys_to_logI_torch``.
+    """
+    return np.log(arr_2ch[0] ** 2 + arr_2ch[1] ** 2 + eps)
+
+
+def correct_swst_range_offset(meta: pd.DataFrame, rg_start: int) -> pd.DataFrame:
+    """Correct the Sampling Window Start Time (SWST) for a range-column offset.
+
+    When a patch starts at range column ``rg_start > 0`` (i.e., not at the
+    image left edge), CoarseRDA needs the SWST shifted so it uses the correct
+    near-range slant distance for its matched filter.
+
+    The correction is: ``swst += rg_start / range_sample_freq``
+    where ``range_sample_freq`` comes from ``RANGE_DECIMATION_MAP``.
+
+    This is a no-op when ``rg_start == 0``, the DataFrame is empty, or the
+    ``swst`` / ``range_decimation`` columns are absent.
+
+    Args:
+        meta:      Azimuth-sliced metadata DataFrame (modified **in place**).
+        rg_start:  First range column of the patch (0-based).
+
+    Returns:
+        The same DataFrame with ``swst`` corrected.
+    """
+    if rg_start == 0 or "swst" not in meta.columns or len(meta) == 0:
+        return meta
+    meta_row = meta.iloc[0]
+    rgdec = meta_row.get("Range Decimation") or meta_row.get("range_decimation")
+    if rgdec is not None:
+        range_freq = float(RANGE_DECIMATION_MAP[int(rgdec)])
+        meta["swst"] = meta["swst"] + rg_start / range_freq
+    return meta
 
 
 def clip_mean_std_numpy(img: np.ndarray, factor: float = 3.0) -> np.ndarray:
