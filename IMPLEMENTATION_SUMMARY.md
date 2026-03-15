@@ -524,6 +524,29 @@ call entirely.
 
 ---
 
+### IMPROVE 30 — Product catalog + cherry-pick patch notebook
+
+**Files:** `notebooks/cherry_pick_patch.ipynb`, `data/product_catalog.json`, `data/product_catalog.csv`
+**Change:** Created an interactive notebook that:
+
+1. **Scans** every `.zarr` directory under `data/` and probes each without loading pixel data.
+2. **Catalogs** per-product: zarr version, `has_metadata`, `has_ephemeris`, part, date, stripmap mode, polarisation, `rcmc_shape`, `rcmc_chunks`, downloaded extent (`az_downloaded`, `rg_downloaded`), `download_fraction`, `is_usable` flag.
+3. **Exports** `data/product_catalog.json` (preserves lists/None) and `data/product_catalog.csv` (spreadsheet-friendly). Downstream scripts can `json.load` and filter `e["is_usable"]` without re-scanning.
+4. **Visualises** the audit summary (status breakdown, download fraction histogram, count per part).
+5. **Product explorer** — loads a selected product, subsamples the downloaded region using `find_optimal_step_size`, displays a logI overview with lime (downloaded) and red-dashed (full image) rectangles. Non-downloaded chunks appear dark (zarr fill value 0+0j).
+6. **Patch picker** — user sets `AZ_START/AZ_END/RG_START/RG_END`, validates they are within the downloaded region, shows cyan patch box on overview + zoomed logI panel.
+7. **Saves** `data/selected_patch.json` and prints a config snippet for the F14 callback.
+
+**Quick-load from other scripts:**
+
+```python
+import json
+catalog = json.load(open("data/product_catalog.json"))
+usable  = [e for e in catalog if e["is_usable"]]
+```
+
+---
+
 ## 🔮 Future Features
 
 | ID | Feature | Priority | Track |
