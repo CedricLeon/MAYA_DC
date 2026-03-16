@@ -1,0 +1,19 @@
+# @package _global_
+# ──────────────────────────────────────────────────────────────────────────────
+# Training mode: RCMC domain, simple MSE loss.
+#
+# Pipeline: x → encode → x̂ → trim buffer → MSE vs rcmc_target
+# No azimuth compression. Shorter gradient path; use for:
+#   • Curriculum phase 1 (teach the codec to reproduce RCMC patches)
+#   • Overfit / smoke tests
+#   • Products without valid ephemeris
+#
+# Select: python src/train.py ... training_mode=rcmc
+# ──────────────────────────────────────────────────────────────────────────────
+model:
+  training_mode: "rcmc"
+  criterion:
+    _target_: src.models.components.losses.SimpleMSELoss
+    lmbda: 100.0        # high λ → distortion dominates; tune with model.criterion.lmbda=...
+    patch_size: ${patch_size}
+    azimuth_buffer: ${azimuth_buffer}

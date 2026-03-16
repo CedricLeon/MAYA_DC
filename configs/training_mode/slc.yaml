@@ -1,0 +1,19 @@
+# @package _global_
+# ──────────────────────────────────────────────────────────────────────────────
+# Training mode: SLC domain, full compound SAR loss.
+#
+# Pipeline: x → encode → x̂ → az-compress → (MSE + δ_kde·KDE + δ_coh·Coh) vs slc_target
+# Full SAR-aware distortion. Use once RCMC-domain training has converged.
+#
+# Select: python src/train.py ... training_mode=slc   (default)
+# ──────────────────────────────────────────────────────────────────────────────
+model:
+  training_mode: "slc"
+  criterion:
+    _target_: src.models.components.losses.CompoundCompressionLoss
+    lmbda: 0.01         # override per-experiment with model.criterion.lmbda=...
+    delta_kde: 1.0
+    delta_coherence: 1.0
+    num_kde_bins: 100
+    patch_size: ${patch_size}
+    azimuth_buffer: ${azimuth_buffer}

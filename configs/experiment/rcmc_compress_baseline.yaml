@@ -10,6 +10,7 @@ defaults:
   - override /logger: wandb.yaml
   - override /trainer: gpu.yaml
   - override /hydra: default.yaml
+  - training_mode: rcmc   # switch with: training_mode=slc_mse | training_mode=slc
 
 # Experiment metadata
 tags: ["rcmc_compression", "scale_hyperprior", "maya4"]
@@ -51,21 +52,11 @@ data:
   azimuth_buffer: ${azimuth_buffer}
 
 # Model configuration
+# training_mode and criterion._target_ are set by the training_mode config group above.
+# λ default comes from the group (rcmc/slc_mse: 100.0, slc: 0.01).
+# Override per-run: model.criterion.lmbda=0.001
 model:
-  training_mode: "slc"
   azimuth_buffer: ${azimuth_buffer}
-  criterion:
-    # # ───────── Simple MSE Loss ─────────
-    # _target_: src.models.components.losses.SimpleMSELoss
-    # ───────── Compound Compression Loss ─────────
-    _target_: src.models.components.losses.CompoundCompressionLoss
-    delta_kde: 1
-    delta_coherence: 1
-    num_kde_bins: 100
-    # ───────── Common parameters ─────────
-    lmbda: 10  # Rate-distortion tradeoff
-    patch_size: ${patch_size}
-    azimuth_buffer: ${azimuth_buffer}
 
 # Logging
 logger:

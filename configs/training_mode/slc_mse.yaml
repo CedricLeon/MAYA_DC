@@ -1,0 +1,18 @@
+# @package _global_
+# ──────────────────────────────────────────────────────────────────────────────
+# Training mode: SLC domain, simple MSE loss.
+#
+# Pipeline: x → encode → x̂ → az-compress → MSE vs slc_target
+# Full azimuth compression is in the loop, but distortion is pure MSE.
+# Useful intermediate step: verifies the az-compression gradient path
+# before adding the heavier compound SAR terms.
+#
+# Select: python src/train.py ... training_mode=slc_mse
+# ──────────────────────────────────────────────────────────────────────────────
+model:
+  training_mode: "slc"
+  criterion:
+    _target_: src.models.components.losses.SimpleMSELoss
+    lmbda: 100.0        # high λ → distortion dominates; tune with model.criterion.lmbda=...
+    patch_size: ${patch_size}
+    azimuth_buffer: ${azimuth_buffer}
