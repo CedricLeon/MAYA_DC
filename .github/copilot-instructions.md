@@ -126,3 +126,7 @@ unfixable with the current stubs:
 **Never** use `# type: ignore` to paper over real type mismatches.
 Prefer narrowing types explicitly with `isinstance` checks or explicit casts.
 Avoid bare `# type: ignore` without an error code.
+
+## Special characters
+- Do not use the special character `–` (U+2013), instead use the traditional - (U+002D) for dashes in text.
+- Similarly, do not use `×` (U+00D7) but `x` (U+0078).

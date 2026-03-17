@@ -35,7 +35,8 @@ RCMC (B,2,Az+2·buf,Rg)
 
 | File | Role |
 | :--- | :--- |
-| `src/data/maya4_datamodule.py` | `LightningDataModule`; loads MAYA4 zarr patches with metadata |
+| `src/data/maya4_datamodule.py` | `LightningDataModule`; filter-based product selection (parts, years, polarizations) |
+| `src/data/maya4_dir_datamodule.py` | `LightningDataModule`; directory-based product selection (F15) |
 | `src/models/rcmc_compress_module.py` | `LightningModule`; training/validation loop |
 | `src/models/components/scale_hyperprior.py` | NIC model (CompressAI ScaleHyperprior, 2-channel SAR input) |
 | `src/models/components/losses.py` | `SimpleMSELoss`, `CompoundCompressionLoss`, `CompoundSARLoss`; helpers: `estimate_likelihoods_bpp`, `kde_histogram_loss`, `complex_coherence_loss` |
@@ -206,6 +207,25 @@ range before calling any metrics:
 All six metric functions in the callback now receive `[0, 1]`-normalised tensors,
 making `val_batch/*` WandB scalars directly comparable to `valid/*` scalars from
 the module's `validation_step`.
+
+### BUG 32 — `samples_per_prod=0` produces an empty DataLoader (Lightning sees `len=0`)
+
+**File:** `Maya4/maya4/dataloader.py` (`KPatchSampler.__len__`)
+**Root cause:** Two-layer problem.
+1. `SARZarrDataset.__len__` returns `self._samples_per_prod * n_files` — when
+   `samples_per_prod=0` this is always `0` (documented as a "sentinel", but
+   indistinguishable from an empty dataset).
+2. `KPatchSampler.__len__` had three branches: (a) `samples_per_prod > 0` — exact;
+   (b) `self.beginning=True` (before first `__iter__`) — delegated to
+   `len(self.dataset)` = 0; (c) post-scan — summed real counts but was never
+   reached because Lightning calls `len(dataloader)` before the first epoch.
+   Result: Lightning read `len=0`, set `num_training_batches=0`, and skipped training.
+**Fix:** Collapsed `KPatchSampler.__len__` into two branches. When
+`samples_per_prod == 0`, the method now eagerly calls
+`dataset.calculate_patches_from_store(zfile)` for any file whose sample list is
+still empty (identical to what `__iter__` would do), then sums the populated
+lists. The scan is cheap (reads Zarr array shape metadata, not pixel data) and
+idempotent. The `self.beginning` guard is removed entirely.
 
 ### BUG 16 — `[grad-check]` false alarm on `entropy_bottleneck.quantiles`
 
@@ -591,3 +611,7 @@ callbacks:
 | :--- | :--- | :--- | :--- |
 | F11 | **Factorized Prior vs Scale Hyperprior ablation** — swap `ScaleHyperprior` for a `FactorizedPrior` via config to compare architectures | High | §Further experiments |
 | F12 | **Conventional codec baselines** — JPEG, JPEG2000, WebP via CompressAI for RD-curve comparison | Low | §Further experiments |
+| F15 | **Directory-based product selection** ✅ **Implemented** — `src/data/maya4_dir_datamodule.py` + `configs/data/maya4_dir.yaml`. **Design**: `MAYA4DirDataModule` accepts `train_dir / val_dir / test_dir`; `RCMCSARDirDataset` overrides `_build_file_list()` to do a targeted `rglob("*.zarr")` on the given directory instead of scanning the full `data_dir`. No `SampleFilter`, no CSV parsing. `max_products_*=-1` (default) means use all products that pass the ephemeris check. Expected directory layout: `<split_dir>/[PT*/]s1a-s*-raw-s-*.zarr`. **Usage**: `python src/train.py experiment=rcmc_compress_baseline data=maya4_dir data.train_dir=data/splits/train data.val_dir=data/splits/val`. **Phase 2 pending**: populate the actual split directories. | Medium | §Data pipeline |
+| F17 | **Real test-time compression** — call `net.compress()` / `net.decompress()` in `test_step` instead of `net.forward()`, and compute bpp from actual generated bitstring lengths. Currently, test bpp is computed from likelihoods (same proxy as training). Real bitstring bpp is the ground-truth compression ratio and validates the entropy model end-to-end. Also eliminates the noise→rounding distribution shift between training and test steps. | Medium | §Testing |
+| F18 | **Two-phase RCMC→SLC curriculum training** — train a long RCMC-MSE run to convergence, save the checkpoint, then fine-tune from that checkpoint in SLC mode with the compound loss. **Pros**: cleaner gradient path in phase 1; warm-start reduces phase-2 epochs; RCMC checkpoint is independently useful as a baseline. **Cons / open questions**: (1) RCMC-optimal latents may differ from SLC-optimal latents — the encoder learns to preserve features that survive the azimuth matched filter, which is a different subspace from RCMC MSE; (2) entropy bottleneck quantile tables are calibrated on the RCMC latent distribution and must re-adapt in phase 2; (3) AdamW momentum should be reset when switching loss landscapes; (4) phase 1 delays discovery of SLC-specific failure modes. **Recommended experiment**: compare SLC training from random init vs. from RCMC checkpoint to quantify whether the warm start actually helps, rather than assuming it does. | Medium | §Further experiments |
+| F16 | **Log \|z\| magnitude during training** — add `train/z_abs_mean` scalar (mean of `\|h_a(\|y\|)\|` over the batch) to `training_step`. If `aux_loss` stays large after 100 k+ steps, this distinguishes between (a) entropy bottleneck not yet converged and (b) z values out of the quantile table range. Cheap to add; only matters as a differential diagnostic. | Low | §Diagnostics |

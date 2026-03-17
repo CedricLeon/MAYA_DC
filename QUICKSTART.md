@@ -108,6 +108,24 @@ tensorboard --logdir logs/
 > this is violated.  Valid combinations: `patch_az=512, buf=128 → 768`,
 > `patch_az=2048, buf=512 → 3072`.
 
+### `configs/data/maya4_dir.yaml` (directory-based splits)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `train_dir` | `null` | Directory with training zarr products (recursive scan) |
+| `val_dir` | `null` | Directory with validation zarr products |
+| `test_dir` | `null` | Directory with test zarr products |
+| `max_products_train/val/test` | `-1` | Cap on products per split after ephemeris check (`-1` = all) |
+| `samples_per_prod` | `0` | Patches per product per epoch (`0` = all) |
+
+Usage:
+
+```bash
+python src/train.py experiment=rcmc_compress_baseline data=maya4_dir \
+  data.train_dir=data/splits/train data.val_dir=data/splits/val \
+  data.patch_size=[512,512] data.azimuth_buffer=512
+```
+
 ### `configs/model/rcmc_compress.yaml`
 
 | Parameter | Default | Description |
@@ -131,7 +149,8 @@ src/
   train.py                        ← training entry point
   eval.py                         ← evaluation entry point
   data/
-    maya4_datamodule.py           ← MAYA4 LightningDataModule
+    maya4_datamodule.py           ← filter-based LightningDataModule (parts/years)
+    maya4_dir_datamodule.py       ← directory-based LightningDataModule (F15)
   models/
     rcmc_compress_module.py       ← training LightningModule
     components/
@@ -149,6 +168,7 @@ scripts/
 
 configs/
   data/maya4.yaml
+  data/maya4_dir.yaml
   model/rcmc_compress.yaml
   experiment/rcmc_compress_baseline.yaml
 ```
