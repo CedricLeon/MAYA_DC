@@ -21,6 +21,7 @@ No wrapper class, no post-batch processing step.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
@@ -64,8 +65,20 @@ class RCMCSARDataset(SARZarrDataset):
     5. Returns a 5-tuple: ``(rcmc, slc, metadata, ephemeris, coords)``.
     """
 
-    def __init__(self, azimuth_buffer: int, max_products: int | None = None, **kwargs):
-        # Pass max_products=None to the parent so it doesn't cap the file list early.
+    def __init__(
+        self,
+        azimuth_buffer: int,
+        max_products: int | None = None,
+        **kwargs,
+    ):
+        """Initialise the dataset.
+
+        Args:
+            azimuth_buffer: Extra azimuth lines on each side of every patch.
+            max_products: Cap on the number of products used.  ``None`` = no cap.
+            **kwargs: Forwarded verbatim to class `SARZarrDataset`.
+        """
+        # Pass max_products=999_999 to the parent so it doesn't cap the file list early.
         # We apply the cap ourselves after _drop_files_without_ephemeris(), so that
         # files with broken ephemeris don't silently consume slots in the cap.
         super().__init__(max_products=999_999, **kwargs)
@@ -75,6 +88,7 @@ class RCMCSARDataset(SARZarrDataset):
         # Each DataLoader worker has its own copy — that is fine because
         # metadata DataFrames are tiny (a few hundred rows per file).
         self._meta_cache: dict[str, tuple[Any, Any]] = {}
+
         # Drop files whose metadata lacks ephemeris — CoarseRDA cannot focus
         # without satellite state vectors. Some zarr v2 products are affected.
         self._drop_files_without_ephemeris()
@@ -235,7 +249,7 @@ class MAYA4DataModule(lightning.LightningDataModule):
             years: Filter products by acquisition year.
             polarizations: Filter by polarisation (e.g. ``["hh"]``).
             stripmap_modes: Filter by stripmap beam mode number.
-            max_products_train/val/test: Max zarr files per split.
+            max_products_train/val/test: Cap on zarr files per split.
             samples_per_prod: Patches per file per epoch. ``0`` = all patches.
             online: Download missing zarr chunks from HuggingFace if ``True``.
         """
@@ -347,15 +361,21 @@ class MAYA4DataModule(lightning.LightningDataModule):
 
         if stage in ("fit", None):
             self._train_loader = self._make_dataloader(
-                hp.train_parts, hp.max_products_train, shuffle=True  # type: ignore[attr-defined]
+                hp.train_parts,
+                hp.max_products_train,
+                shuffle=True,  # type: ignore[attr-defined]
             )
             self._val_loader = self._make_dataloader(
-                hp.val_parts, hp.max_products_val, shuffle=False  # type: ignore[attr-defined]
+                hp.val_parts,
+                hp.max_products_val,
+                shuffle=False,  # type: ignore[attr-defined]
             )
 
         if stage in ("test", None):
             self._test_loader = self._make_dataloader(
-                hp.test_parts, hp.max_products_test, shuffle=False  # type: ignore[attr-defined]
+                hp.test_parts,
+                hp.max_products_test,
+                shuffle=False,  # type: ignore[attr-defined]
             )
 
     # ------------------------------------------------------------------
