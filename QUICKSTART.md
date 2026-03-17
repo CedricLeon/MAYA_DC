@@ -22,11 +22,33 @@ python src/train.py experiment=rcmc_compress_baseline +trainer.fast_dev_run=2
 
 ### 1 · Environment
 
+Package versions live in `pyproject.toml`. `environment.yaml` pins the Python
+interpreter and delegates all pip installs to `pyproject.toml` in one shot.
+Run from the **repo root**:
+
+> **Before creating the env:** `Maya4/` and `srp/` are **not**
+> included in this git repository. Clone or copy them into the repo root first:
+>
+> ```bash
+> git clone https://github.com/sirbastiano/Maya4.git
+> git clone https://github.com/sirbastiano/srp
+> ```
+
 ```bash
 conda env create -f environment.yaml
 conda activate MAYA_DC
-python -c "import torch, lightning, hydra, maya4, sarpyx; print('All OK')"
+python -c "import torch, lightning, hydra, compressai, maya4, sarpyx; print('All OK')"
 ```
+
+To update an existing env after `pyproject.toml` or `environment.yaml` changes:
+
+```bash
+conda env update -f environment.yaml --prune
+```
+
+> **Without conda:** `pip install -e ".[dev]"` from the repo root installs
+> everything (including `maya4`, and `sarpyx` as editable local packages)
+> into whatever Python environment is currently active.
 
 ### 2 · Data
 
