@@ -1,0 +1,28 @@
+_target_: src.data.maya4_dir_datamodule.MAYA4DirDataModule
+
+# Directories containing zarr products for each split.
+# All *.zarr files found recursively in each directory are eligible.
+# Expected layout: <split_dir>/[PT*/]s1a-s*-raw-s-*.zarr
+train_dir: null
+val_dir: null
+test_dir: null
+
+# Patch configuration
+patch_size: ???
+azimuth_buffer: ???
+
+# Training configuration
+batch_size: 4
+num_workers: 4
+pin_memory: True
+
+# Product cap per split after the ephemeris check. -1 = use all.
+max_products_train: -1
+max_products_val: -1
+max_products_test: -1
+
+# Patches drawn per product per epoch. 0 = all patches.
+samples_per_prod: 0
+
+# Set online: true once to download missing zarr chunks from HuggingFace.
+online: false

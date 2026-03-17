@@ -4,13 +4,13 @@
 # This combines model, data, and trainer settings
 
 defaults:
+  - /training_mode: rcmc   # switch with: training_mode=slc_mse | training_mode=slc
   - override /data: maya4.yaml
   - override /model: rcmc_compress.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
   - override /trainer: gpu.yaml
   - override /hydra: default.yaml
-  - training_mode: rcmc   # switch with: training_mode=slc_mse | training_mode=slc
 
 # Experiment metadata
 tags: ["rcmc_compression", "scale_hyperprior", "maya4"]
@@ -29,7 +29,7 @@ azimuth_buffer: 512
 
 # Trainer configuration
 trainer:
-  max_epochs: 50
+  max_epochs: 500
   accelerator: "gpu"
   devices: 1
   precision: "32-true"  # cuFFT needs power-of-2 sizes for "16-mixed"
@@ -44,11 +44,11 @@ data:
   patch_size: ${patch_size}
   batch_size: 4
   num_workers: 4
-  max_products_train: 7
-  max_products_val: 1
+  max_products_train: 10
+  max_products_val: 2
   max_products_test: 2
   samples_per_prod: 100   # patches per product per epoch; 0 = all
-  online: false          # set true ONCE to download; keep false afterward
+  online: true          # set true ONCE to download; keep false afterward
   azimuth_buffer: ${azimuth_buffer}
 
 # Model configuration
