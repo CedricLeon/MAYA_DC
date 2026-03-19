@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import warnings
 from importlib.util import find_spec
 from pathlib import Path
@@ -312,8 +313,34 @@ def early_wandb_initialization(cfg: DictConfig) -> None:
         # Suppress logging messages (e.g., warnings about the syncing not being fast enough)
         wandb_osh.set_log_level("ERROR")  # for wandb_osh.__version__ >= 1.2.0
 
-    # Manual cast of the config from a DictConfig to a regular dict (should be supported by W&B by now)
-    wandb.config = omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+    # Convert Hydra DictConfig to a plain dict and pass it to wandb.init()
+    cfg_dict = omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+
+    # Some Hydra/OmegaConf constructs can end up as stringified Python dicts
+    # (single quotes, ${...} interpolation left as strings). Try to recover
+    # real nested structures by safely evaluating obvious stringified dicts/lists.
+    def _try_parse_literal(v):
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if not s:
+            return v
+        # heuristic: only attempt when it looks like a Python literal
+        if (s[0] in '[{"') or (s[0] == "{" and ":" in s):
+            try:
+                return ast.literal_eval(s)
+            except Exception:
+                return v
+        return v
+
+    def _normalize(o):
+        if isinstance(o, dict):
+            return {k: _normalize(_try_parse_literal(v)) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_normalize(_try_parse_literal(x)) for x in o]
+        return o
+
+    cfg_dict = _normalize(cfg_dict)
     # Use an explicit run_name from the config if provided; otherwise auto-generate.
     run_name = cfg.logger.wandb.get("run_name", None) or make_wandb_run_name(cfg)
     wandb.init(
@@ -322,6 +349,7 @@ def early_wandb_initialization(cfg: DictConfig) -> None:
         name=run_name,
         dir=cfg.logger.wandb.save_dir,
         tags=cfg.tags,
+        config=cfg_dict,
         mode="offline" if cfg.logger.wandb.offline else "online",
         settings=wandb.Settings(start_method="thread"),
     )
