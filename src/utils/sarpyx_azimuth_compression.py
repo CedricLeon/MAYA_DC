@@ -275,7 +275,7 @@ def full_azimuth_compress_batch(
     buffer_size: int = 500,
     device: Any = "cpu",
     coords_batch: Optional[Any] = None,
-    use_filter_cache: bool = False,
+    use_filter_cache: bool = True,
 ) -> Tensor:
     """Azimuth-focus a batch of RCMC patches, preserving torch gradients.
 
