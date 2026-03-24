@@ -176,10 +176,10 @@ class MonitorValReconstruction(Callback):
 
             for col_idx, img_np in enumerate(row_imgs_clipped):
                 ax = axes[row_idx, col_idx]
-                # img_np shape is (Az, Rg) -- transpose to (Rg, Az) so azimuth
-                # runs left→right and range runs top→bottom.
+                # img_np shape is (Az, Rg): rows = azimuth (vertical, top→bottom),
+                # cols = range (horizontal, left→right). No transpose needed.
                 im = ax.imshow(
-                    img_np.T,
+                    img_np,
                     cmap="viridis",
                     aspect="auto",
                     origin="upper",

@@ -364,16 +364,15 @@ class MonitorFixedPatch(Callback):
         fig, axes = plt.subplots(1, n, figsize=(5 * n, 6), squeeze=False)
 
         for col, (title, arr) in enumerate(panels):
-            # logI shape is (Az, Rg) -- transpose to (Rg, Az) so azimuth runs
-            # left→right (x-axis) and range runs top→bottom (y-axis).
-            logI = clip_mean_std_numpy(phys_to_logI_np(arr), self.clip_factor).T
+            # logI shape is (Az, Rg): rows = azimuth (vertical, top→bottom),
+            # cols = range (horizontal, left→right). No transpose needed.
+            logI = clip_mean_std_numpy(phys_to_logI_np(arr), self.clip_factor)
             ax = axes[0, col]
             ax.set_facecolor("black")
             im = ax.imshow(logI, cmap="viridis", aspect="auto", origin="upper")
             ax.set_title(title, fontsize=9)
-            ax.set_xlabel("Az →", fontsize=7)
-            ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
-            ax.set_ylabel("← Rg", fontsize=7)
+            ax.set_xlabel("Range →", fontsize=7)
+            ax.set_ylabel("Azimuth ↓", fontsize=7)
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         fig.suptitle(f"Fixed patch '{self._patch_stem}' -- epoch {epoch}", fontsize=11)

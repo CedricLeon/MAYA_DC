@@ -71,7 +71,7 @@ count_row = min(last_row_chunk * chunk_rows, full_rows)
 - **Display**: Always use **log-intensity**: `logI = ln(re² + im² + ε)` from `phys_to_logI_torch`.
   Clip for contrast: `mean ± clip_factor·std` (default `clip_factor=3.0`).
   Always use the **`viridis`** colormap. Never display raw real/imag channels or linear amplitude directly.
-- **Orientation**: **(0, 0) is at the top-left corner**. Azimuth is the **horizontal axis, left → right** (Az=0 at the left edge). Range is the **vertical axis, top → bottom** (Rg=0 at the top). Implementation: data shape is `(Az, Rg)`; transpose to `(Rg, Az)` before `imshow`, set `extent=[az_start, az_stop, rg_stop, rg_start]` (origin="upper"). No x-axis inversion needed. Use `ax.set_facecolor("black")` so non-downloaded chunks appear black.
+- **Orientation**: **(0, 0) is at the top-left corner**. Azimuth is the **vertical axis, top → bottom** (Az=0 at the top edge). Range is the **horizontal axis, left → right** (Rg=0 at the left edge). Implementation: data shape is `(Az, Rg)`; display directly without transposing — matplotlib rows = azimuth (vertical), cols = range (horizontal). Use `origin="upper"` and `ax.set_xlabel("Range →")` / `ax.set_ylabel("Azimuth ↓")`. Use `ax.set_facecolor("black")` so non-downloaded chunks appear black.
 - **Metrics**: Always compute on **linear amplitude**: `|·| = sqrt(re² + im²)` from `phys_to_linA_torch`,
   or on the normalised `[0, 1]` domain.
   **Never compute PSNR, SSIM, coherence, or KDE on log-scale data.**

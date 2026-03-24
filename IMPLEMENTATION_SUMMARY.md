@@ -481,15 +481,14 @@ or ephemeris is missing the step will raise.
 All SAR image plots use the following axes convention:
 
 - **(0, 0) is at the top-left corner**.
-- **Azimuth** = horizontal axis, increasing **left → right** (Az=0 at the left edge).
-- **Range** = vertical axis, increasing **top → bottom** (Rg=0 at the top).
+- **Azimuth** = vertical axis, increasing **top → bottom** (Az=0 at the top edge).
+- **Range** = horizontal axis, increasing **left → right** (Rg=0 at the left edge).
 
 Implementation:
 
-- Data arrays have shape `(Az, Rg)`. Transpose to `(Rg, Az)` before `imshow`.
-- `extent=[az_start, az_stop, rg_stop, rg_start]` with `origin="upper"` → range grows downward, no x-axis inversion needed.
-- `ax.set_xlim(-az_max*0.03, az_max*1.03)` for padding (normal, not inverted).
-- `ax.set_ylim(rg_max*1.03, -rg_max*0.03)` inverts the y-axis so Rg=0 is at the top.
+- Data arrays have shape `(Az, Rg)`. Display directly without transposing — matplotlib treats the first axis as rows (vertical = azimuth) and the second as columns (horizontal = range).
+- `origin="upper"` keeps Az=0 at the top.
+- `ax.set_xlabel("Range →")`, `ax.set_ylabel("Azimuth ↓")`.
 - `ax.set_facecolor("black")` → non-downloaded chunks appear black instead of the default white background.
 
 ---
