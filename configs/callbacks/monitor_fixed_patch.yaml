@@ -1,6 +1,6 @@
 monitor_fixed_patch:
   _target_: src.callbacks.monitor_fixed_patch.MonitorFixedPatch
-  patch_json: data/fixed_patches/fogo_volcano_island_vh_20240502.json
+  patch_json: data/fixed_patches/s1c-s6-raw-s-vv-20250422t061414-20250422t061446-002002-0040d4.json
   log_every_n_epochs: 1
   clip_factor: 3.0
   verbose: false

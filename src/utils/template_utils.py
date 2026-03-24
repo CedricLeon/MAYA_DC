@@ -26,6 +26,54 @@ from src.utils import pylogger
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
+def _normalize_logging_payload(
+    payload: Any, *, throw_on_missing: bool = False
+) -> Any:
+    """Convert Hydra/OmegaConf payloads into plain nested Python containers.
+
+    W&B and some Lightning logger paths can stringify unsupported objects such as
+    ``DictConfig`` instances. Normalizing eagerly keeps nested sections like
+    ``data`` and ``model`` as real dictionaries.
+    """
+    if OmegaConf.is_config(payload):
+        payload = OmegaConf.to_container(
+            payload,
+            resolve=True,
+            throw_on_missing=throw_on_missing,
+            enum_to_str=True,
+        )
+
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if stripped and stripped[0] in "[{(":
+            try:
+                payload = ast.literal_eval(stripped)
+            except (SyntaxError, ValueError):
+                return payload
+        else:
+            return payload
+
+    if isinstance(payload, dict):
+        return {
+            str(key): _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [
+            _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for value in payload
+        ]
+    if isinstance(payload, tuple):
+        return [
+            _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for value in payload
+        ]
+    if isinstance(payload, Path):
+        return str(payload)
+
+    return payload
+
+
 # --------------------------------------------------------------------------------------
 # Rich / Config presentation utilities (from rich_utils.py)
 # --------------------------------------------------------------------------------------
@@ -212,6 +260,7 @@ def log_hyperparameters(object_dict: dict[str, Any]) -> None:
     hparams["tags"] = cfg.get("tags")
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
+    hparams = _normalize_logging_payload(hparams)
 
     # send hparams to all loggers
     for logger in trainer.loggers:
@@ -313,34 +362,7 @@ def early_wandb_initialization(cfg: DictConfig) -> None:
         # Suppress logging messages (e.g., warnings about the syncing not being fast enough)
         wandb_osh.set_log_level("ERROR")  # for wandb_osh.__version__ >= 1.2.0
 
-    # Convert Hydra DictConfig to a plain dict and pass it to wandb.init()
-    cfg_dict = omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
-
-    # Some Hydra/OmegaConf constructs can end up as stringified Python dicts
-    # (single quotes, ${...} interpolation left as strings). Try to recover
-    # real nested structures by safely evaluating obvious stringified dicts/lists.
-    def _try_parse_literal(v):
-        if not isinstance(v, str):
-            return v
-        s = v.strip()
-        if not s:
-            return v
-        # heuristic: only attempt when it looks like a Python literal
-        if (s[0] in '[{"') or (s[0] == "{" and ":" in s):
-            try:
-                return ast.literal_eval(s)
-            except Exception:
-                return v
-        return v
-
-    def _normalize(o):
-        if isinstance(o, dict):
-            return {k: _normalize(_try_parse_literal(v)) for k, v in o.items()}
-        if isinstance(o, list):
-            return [_normalize(_try_parse_literal(x)) for x in o]
-        return o
-
-    cfg_dict = _normalize(cfg_dict)
+    cfg_dict = _normalize_logging_payload(cfg, throw_on_missing=True)
     # Use an explicit run_name from the config if provided; otherwise auto-generate.
     run_name = cfg.logger.wandb.get("run_name", None) or make_wandb_run_name(cfg)
     wandb.init(

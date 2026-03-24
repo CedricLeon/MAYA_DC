@@ -1,3 +1,5 @@
+import os
+import socket
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -41,6 +43,70 @@ from src.utils import (  # noqa: E402
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
+def _uses_multiple_devices(devices: Any) -> bool:
+    """Return whether the trainer config requests more than one device."""
+    if isinstance(devices, int):
+        return devices != 1
+    if isinstance(devices, str):
+        return devices != "1"
+    if isinstance(devices, (list, tuple)):
+        return len(devices) != 1
+    return True
+
+
+def _find_free_local_port() -> str:
+    """Reserve an ephemeral localhost port for DDP bootstrap."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        return str(sock.getsockname()[1])
+
+
+def _configure_single_node_ddp_environment(cfg: DictConfig) -> None:
+    """Fill in safe defaults for single-node GPU DDP when the scheduler didn't."""
+    trainer_cfg = cfg.get("trainer")
+    if trainer_cfg is None:
+        return
+
+    strategy = str(trainer_cfg.get("strategy", "")).lower()
+    accelerator = str(trainer_cfg.get("accelerator", "")).lower()
+    num_nodes = int(trainer_cfg.get("num_nodes", 1))
+    devices = trainer_cfg.get("devices", 1)
+
+    if "ddp" not in strategy:
+        return
+    if accelerator not in {"gpu", "cuda"}:
+        return
+    if num_nodes != 1 or not _uses_multiple_devices(devices):
+        return
+
+    previous_nccl_ifname = os.environ.get("NCCL_SOCKET_IFNAME")
+    previous_gloo_ifname = os.environ.get("GLOO_SOCKET_IFNAME")
+
+    if "MASTER_ADDR" not in os.environ:
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+    if "MASTER_PORT" not in os.environ:
+        os.environ["MASTER_PORT"] = _find_free_local_port()
+
+    # On single-node jobs, DDP only needs a local bootstrap interface.
+    # Force loopback here because cluster-wide NCCL socket vars can point at
+    # interfaces that are unavailable or unrouted inside the batch job.
+    os.environ["NCCL_SOCKET_IFNAME"] = "lo"
+    os.environ["GLOO_SOCKET_IFNAME"] = "lo"
+
+    log.info(
+        "Configured single-node DDP bootstrap on loopback "
+        f"<MASTER_ADDR={os.environ['MASTER_ADDR']}, "
+        f"MASTER_PORT={os.environ['MASTER_PORT']}, "
+        f"NCCL_SOCKET_IFNAME={os.environ['NCCL_SOCKET_IFNAME']}, "
+        f"GLOO_SOCKET_IFNAME={os.environ['GLOO_SOCKET_IFNAME']}>"
+    )
+    if previous_nccl_ifname and previous_nccl_ifname != "lo":
+        log.info(f"Overrode inherited NCCL_SOCKET_IFNAME <{previous_nccl_ifname}> for single-node DDP")
+    if previous_gloo_ifname and previous_gloo_ifname != "lo":
+        log.info(f"Overrode inherited GLOO_SOCKET_IFNAME <{previous_gloo_ifname}> for single-node DDP")
+
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -65,6 +131,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Setting deterministic behavior!")
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+    _configure_single_node_ddp_environment(cfg)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -102,10 +170,17 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("test"):
         log.info("Starting testing!")
-        assert isinstance(trainer.checkpoint_callback, ModelCheckpoint)
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        if ckpt_path == "":
-            log.warning("Best ckpt not found! Using current weights for testing...")
+        ckpt_path = cfg.get("ckpt_path")
+        if cfg.get("train"):
+            assert isinstance(trainer.checkpoint_callback, ModelCheckpoint)
+            best_ckpt_path = trainer.checkpoint_callback.best_model_path
+            if best_ckpt_path == "":
+                log.warning("Best ckpt not found! Using current weights for testing...")
+                ckpt_path = None
+            else:
+                ckpt_path = best_ckpt_path
+        elif ckpt_path in {"", None}:
+            log.warning("No ckpt_path provided for test-only run! Using current weights for testing...")
             ckpt_path = None
         trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
         log.info(f"Best ckpt path: {ckpt_path}")

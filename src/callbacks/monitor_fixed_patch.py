@@ -34,6 +34,7 @@ Figure layout (logged to ``fixed_patch/reconstruction`` in WandB):
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import matplotlib.figure
@@ -118,6 +119,99 @@ class MonitorFixedPatch(Callback):
     # Setup
     # ------------------------------------------------------------------
 
+    def _resolve_patch_json_path(self) -> Path:
+        """Resolve the configured patch JSON path, with a basename fallback."""
+        json_path = Path(self.patch_json)
+        project_root = Path(rootutils.find_root(search_from=__file__, indicator=".project-root"))
+
+        candidates: list[Path]
+        if json_path.is_absolute():
+            candidates = [json_path]
+        else:
+            candidates = [
+                project_root / json_path,
+                project_root / json_path.name,
+                project_root / "data" / "fixed_patches" / json_path.name,
+            ]
+
+        seen: set[Path] = set()
+        searched: list[Path] = []
+        for candidate in candidates:
+            candidate = candidate.resolve()
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            searched.append(candidate)
+            if candidate.exists():
+                return candidate
+
+        searched_msg = "\n  - ".join(str(path) for path in searched)
+        raise FileNotFoundError(
+            "[MonitorFixedPatch] Patch JSON not found.\n"
+            f"Configured path: {self.patch_json}\n"
+            f"Searched:\n  - {searched_msg}\n"
+            "Run notebooks/cherry_pick_patch.ipynb to create it, or update "
+            "`callbacks.monitor_fixed_patch.patch_json` to a valid file."
+        )
+
+    def _resolve_product_path(self, product: str, json_path: Path, trainer: Trainer) -> Path:
+        """Resolve a product path from the JSON against the active dataset roots."""
+        raw_path = Path(product)
+        candidates: list[Path] = []
+        if raw_path.is_absolute():
+            candidates.append(raw_path)
+        else:
+            candidates.extend([json_path.parent / raw_path, raw_path])
+
+        seen: set[Path] = set()
+        searched: list[Path] = []
+
+        def _try(candidate: Path) -> Path | None:
+            resolved = candidate.expanduser()
+            try:
+                key = resolved.resolve()
+            except FileNotFoundError:
+                key = resolved.absolute()
+            if key in seen:
+                return None
+            seen.add(key)
+            searched.append(resolved)
+            return resolved if resolved.exists() else None
+
+        for candidate in candidates:
+            if match := _try(candidate):
+                return match
+
+        datamodule = trainer.datamodule
+        search_roots: list[Path] = []
+        if datamodule is not None and hasattr(datamodule, "hparams"):
+            for key in ("train_dir", "val_dir", "test_dir"):
+                value = getattr(datamodule.hparams, key, None)
+                if value:
+                    root = Path(str(value)).expanduser()
+                    search_roots.extend([root, root.parent])
+
+        for root in search_roots:
+            if not root.exists():
+                continue
+            direct = root / raw_path.name
+            if match := _try(direct):
+                return match
+
+            matches = sorted(root.rglob(raw_path.name))
+            if matches:
+                return matches[0]
+
+        searched_msg = "\n  - ".join(str(path) for path in searched)
+        raise FileNotFoundError(
+            "[MonitorFixedPatch] Product referenced in patch JSON not found.\n"
+            f"JSON file: {json_path}\n"
+            f"Product entry: {product}\n"
+            f"Searched:\n  - {searched_msg}\n"
+            "Update the JSON to point to a product available under the current "
+            "train/val/test dataset roots."
+        )
+
     def on_fit_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
         """Load the fixed patch from zarr and cache everything for inference.
 
@@ -136,21 +230,12 @@ class MonitorFixedPatch(Callback):
             _az_core         int  -- core azimuth lines
         """
         # -- Resolve JSON path -------------------------------------------
-        json_path = Path(self.patch_json)
-        if not json_path.is_absolute():
-            project_root = rootutils.find_root(search_from=__file__, indicator=".project-root")
-            json_path = project_root / json_path
-
-        if not json_path.exists():
-            raise FileNotFoundError(
-                f"[MonitorFixedPatch] Patch JSON not found: {json_path}.\n"
-                "Run notebooks/cherry_pick_patch.ipynb to create it."
-            )
+        json_path = self._resolve_patch_json_path()
 
         with open(json_path) as f:
             info = json.load(f)
 
-        zpath = Path(info["product"])
+        zpath = self._resolve_product_path(info["product"], json_path, trainer)
         az_start: int = info["az_start"]
         az_end: int = info["az_end"]
         rg_start: int = info["rg_start"]
@@ -290,6 +375,8 @@ class MonitorFixedPatch(Callback):
 
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
         """Reconstruct the fixed patch and log a comparison figure to WandB."""
+        if not trainer.is_global_zero:
+            return
         if trainer.current_epoch % self.log_every_n_epochs != 0:
             return
 
@@ -310,6 +397,9 @@ class MonitorFixedPatch(Callback):
 
     def on_test_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
         """Save PNG (logI) and NPY (linear amplitude) for each reconstructed domain."""
+        if not trainer.is_global_zero:
+            return
+
         x_hat_core_phys, slc_recon_phys = self._forward(pl_module)
 
         # default_root_dir is always set via configs/paths/default.yaml
@@ -319,9 +409,23 @@ class MonitorFixedPatch(Callback):
 
         def _save(arr: np.ndarray, tag: str) -> None:
             logI = clip_mean_std_numpy(phys_to_logI_np(arr), self.clip_factor)
-            plt.imsave(str(log_dir / f"fixed_patch_{stem}_{tag}_logI.png"), logI, cmap="viridis")
             linA = np.sqrt(arr[0] ** 2 + arr[1] ** 2)
-            np.save(str(log_dir / f"fixed_patch_{stem}_{tag}_linA.npy"), linA)
+            png_path = log_dir / f"fixed_patch_{stem}_{tag}_logI.png"
+            npy_path = log_dir / f"fixed_patch_{stem}_{tag}_linA.npy"
+
+            for attempt in range(2):
+                try:
+                    plt.imsave(str(png_path), logI, cmap="viridis")
+                    np.save(str(npy_path), linA)
+                    return
+                except OSError as exc:
+                    if attempt == 0:
+                        time.sleep(1.0)
+                        continue
+                    print(
+                        "[MonitorFixedPatch] Warning: failed to save fixed-patch artifact "
+                        f"'{npy_path.name}' to {log_dir}: {exc}"
+                    )
 
         _save(x_hat_core_phys, "rcmc_recon")
         if slc_recon_phys is not None:

@@ -1,0 +1,18 @@
+# @package _global_
+
+# Grid sweep for the baseline RCMC compression experiment.
+# Run locally with:
+#   python src/train.py hparams_search=rcmc_grid experiment=rcmc_compress_baseline
+# or submit through PBS with:
+#   make sweep
+
+hydra:
+  mode: MULTIRUN
+
+  sweeper:
+    params:
+      model.criterion.lmbda: 8,15,35
+      seed: 0,1,2
+logger:
+  wandb:
+    group: "rcmc_grid"

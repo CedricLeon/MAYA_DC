@@ -27,4 +27,19 @@ test-full: ## Run all tests
 	pytest
 
 train: ## Train the model
-	python src/train.py
+	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main.sh
+
+sweep: ## Submit one PBS job per baseline sweep run
+	bash /lustre/projects/1001/rdelprete/MAYA_DC/main-sweep.sh
+
+debug: ## Train the model in debug mode
+	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main-debug.sh
+
+
+config:
+	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main-config.sh 
+
+
+status:	
+	echo "Monitoring jobs for user $$USER (Ctrl+C to stop)..." && \
+	watch qstat -u $$USER 

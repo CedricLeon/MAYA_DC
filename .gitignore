@@ -157,3 +157,5 @@ outputs/
 
 # Aim logging
 .aim
+LOGS/
+notebooks/cache/
