@@ -20,21 +20,21 @@ The codebase is a hybrid of deep learning (PyTorch Lightning + Hydra) and signal
     - **Pipeline**:
       - Compress RCMC data using NIC models create $\hat{RCMC}$, compare input RCMC to $\hat{RCMC}$ and also perform Azimuth Compression on $\hat{RCMC}$ to generate $\hat{SLC}$ and compare SLC and $\hat{SLC}$.
     - **Project Structure**:
-      - Source code in `src/` and standalone scripts in `scripts/` (e.g., `sarpyx_azimuth_compression.py` that replicate the SAR focusing pipeline (RCMC $\to$ SLC) via `sarpyx` to validate compression quality.);
-      - All configs are in `configs/` and tests should be written in `tests/`;
-      - Data resides in `data/`; while runs and results are stored in `logs/`;
-      - Local packages used for the projects are stored in `Maya4/` (MAYA4) and `srp/` (sarpyx).
+      - Source code in `src/`; standalone scripts in `scripts/` (e.g., `validate_azimuth_pipeline.py`, which replicates the SAR focusing pipeline (RCMC $\to$ SLC) via `sarpyx` to validate compression quality); analysis in `notebooks/`;
+      - All configs are in `configs/` and tests in `tests/`;
+      - Data resides in `data/` (gitignored); runs/results under `logs/`;
+      - `maya4` (dataset) and `sarpyx` (SAR processing) install automatically from `pyproject.toml` (maya4 + compressai from git, sarpyx from PyPI) — no local clones.
 
 ## Critical Workflows & Commands
 *Every command that require packages should be run inside the `MAYA_DC` conda environment.*
 - **Training**:
     ```bash
-    python src/train.py experiment=example
+    python src/train.py experiment=rcmc_compress_baseline
     ```
 - **Azimuth Compression (Verification)**:
-    - Use `scripts/sarpyx_azimuth_compression.py` for to experiment with the azimuth focusing pipeline.
+    - Use `scripts/validate_azimuth_pipeline.py` to check the differentiable focusing vs sarpyx CoarseRDA.
     ```bash
-    python scripts/sarpyx_azimuth_compression.py --input_file data/PT4/sample.zarr
+    python scripts/validate_azimuth_pipeline.py --input_file <product>.zarr
     ```
 - **Debugging**:
     - Use `debug=fdr` (or other) in Hydra commands.

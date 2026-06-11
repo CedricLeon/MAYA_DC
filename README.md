@@ -103,8 +103,11 @@ training commands, key config parameters, and the project layout.
 # Smoke-test (CPU, 2 batches)
 python src/train.py experiment=rcmc_compress_baseline +trainer.fast_dev_run=2
 
-# Full training run
+# Full training run (set data.{train,val,test}_dir to local zarr dirs)
 python src/train.py experiment=rcmc_compress_baseline
+
+# …or stream the dataset from the public HF bucket (ESA-philab/Maya4)
+python src/train.py experiment=rcmc_compress_baseline data=maya4 data.online=true
 ```
 
 ## Usage
@@ -115,7 +118,7 @@ the CLI:
 
 ```bash
 python src/train.py experiment=rcmc_compress_baseline \
-  model.lmbda=0.001 \
+  model.criterion.lmbda=10 \
   data.batch_size=2 \
   trainer.max_epochs=100
 ```

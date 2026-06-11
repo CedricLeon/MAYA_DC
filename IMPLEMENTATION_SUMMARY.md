@@ -1,5 +1,9 @@
 # MAYA_DC — Implementation Summary
 
+> **Historical (March 2026).** Bug-fix/feature history (F1–F15) and design notes from the
+> EUSAR26 development. Kept as a record; not updated after the 2026-06 cleanup — verify
+> specifics against the code.
+
 **Date:** March 2026
 **Status:** ✅ Pipeline implemented and gradient-verified (10-epoch run, no null/zero grads). Loss convergence is the active open problem.
 
