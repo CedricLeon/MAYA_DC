@@ -150,7 +150,13 @@ defined by `main-sweep.sh` + `main-sweep-run.sh` + `configs/hparams_search/rcmc_
 ## Open decisions / cleanup status (as of 2026-06-03)
 
 Diagnosis done. **Safety tag `cluster-chaos` created** (annotated, local-only,
-→ `4c38d61`) so nothing is lost. **No destructive cleanup executed yet.**
+→ `4c38d61`) so nothing is lost.
+
+**Execution progress (2026-06-11), branch `clean-chaos`:** P0 branch ✓ · P1 de-vendor ✓
+(deps now install from git/PyPI; `Maya4/ srp/ s1isp/` removed — see
+`docs/dependency-bump-notes.md`) · P2 cluster glue removed ✓ (PBS launchers + `logs`
+symlink deleted; commands preserved in `docs/cluster.md`). The pre-cleanup descriptions
+above (vendored clones, `logs` symlink, etc.) are reconciled in the P6 doc truth-pass.
 
 **Locked decisions (2026-06-11):**
 - Work branch `clean-chaos` off `minimal_upgrades` → merge to `dev` → (after docs) release `main`.

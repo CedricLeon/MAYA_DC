@@ -26,20 +26,10 @@ test: ## Run not slow tests
 test-full: ## Run all tests
 	pytest
 
-train: ## Train the model
-	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main.sh
+train: ## Train the baseline experiment
+	python src/train.py experiment=rcmc_compress_baseline
 
-sweep: ## Submit one PBS job per baseline sweep run
-	bash /lustre/projects/1001/rdelprete/MAYA_DC/main-sweep.sh
+debug: ## Fast dev run (smoke test)
+	python src/train.py experiment=rcmc_compress_baseline debug=fdr
 
-debug: ## Train the model in debug mode
-	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main-debug.sh
-
-
-config:
-	cd /lustre/projects/1001/rdelprete/MAYA_DC/LOGS && qsub /lustre/projects/1001/rdelprete/MAYA_DC/main-config.sh 
-
-
-status:	
-	echo "Monitoring jobs for user $$USER (Ctrl+C to stop)..." && \
-	watch qstat -u $$USER 
+# Cluster (PBS / ESA SpaceHPC) launch + sweep commands live in docs/cluster.md.
