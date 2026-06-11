@@ -48,21 +48,23 @@ conda env update -f environment.yaml --prune
 
 ### 2 · Data
 
-MAYA4 zarr products must already be downloaded locally (set `online: false` in
-configs).  To trigger a one-off download of missing chunks set `data.online=true`
-on the command line:
+MAYA4 products live in the **public HuggingFace bucket `ESA-philab/Maya4`** (maya4's
+default). Two ways to feed the model:
+
+- **Directory-based** (the baseline experiment): point `data.train_dir/val_dir/test_dir`
+  at local folders of zarr products.
+- **Bucket streaming** (filter-based datamodule): `data=maya4 data.online=true` streams
+  chunks on demand from the bucket. Verified working:
 
 ```bash
-python src/train.py experiment=rcmc_compress_baseline data.online=true
+python src/train.py experiment=rcmc_compress_baseline data=maya4 data.online=true \
+  '~data.train_dir' '~data.val_dir' '~data.test_dir'
 ```
 
-After the first run the data is cached; switch back to `online: false`.
-
-> **Incomplete downloads:** If only metadata was downloaded for some products
-> (common after a partial/interrupted `online=true` run), `online=false` will
-> print a `[WARN] Skipping '…': could not open store offline` message for each
-> incomplete file and continue with the valid ones.  To complete the download,
-> run once more with `data.online=true`.
+> **Filter caveat:** the bucket currently holds `vv` / 2025 S1–S2 products, while the
+> default `configs/data/maya4.yaml` filters select `hh,hv` (the paper's selection) — so
+> widen `data.polarizations` / `data.years` / `data.stripmap_modes` to match what the
+> bucket actually contains, otherwise the filters match zero products.
 
 ---
 
