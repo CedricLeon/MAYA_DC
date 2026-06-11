@@ -131,7 +131,7 @@ class MonitorFixedPatch(Callback):
             candidates = [
                 project_root / json_path,
                 project_root / json_path.name,
-                project_root / "data" / "fixed_patches" / json_path.name,
+                project_root / "configs" / "fixed_patches" / json_path.name,
             ]
 
         seen: set[Path] = set()
@@ -203,8 +203,9 @@ class MonitorFixedPatch(Callback):
                 return matches[0]
 
         searched_msg = "\n  - ".join(str(path) for path in searched)
+        # Not SQL — bandit B608 misfires on this multi-line message string.
         raise FileNotFoundError(
-            "[MonitorFixedPatch] Product referenced in patch JSON not found.\n"
+            "[MonitorFixedPatch] Product referenced in patch JSON not found.\n"  # nosec B608
             f"JSON file: {json_path}\n"
             f"Product entry: {product}\n"
             f"Searched:\n  - {searched_msg}\n"

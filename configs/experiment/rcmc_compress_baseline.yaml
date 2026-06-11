@@ -42,9 +42,11 @@ trainer:
 
 # Data configuration
 data:
-  train_dir: /lustre/projects/1001/rdelprete/SSM/data/ssm_dataset/focused/PT1
-  val_dir: /lustre/projects/1001/rdelprete/SSM/data/ssm_dataset/focused/PT2
-  test_dir: /lustre/projects/1001/rdelprete/SSM/data/ssm_dataset/focused/PT3
+  # Local directories of zarr products, one per split. Populate them (e.g. download from
+  # the ESA-philab/Maya4 bucket) or stream online instead — see docs/QUICKSTART.md.
+  train_dir: ${paths.data_dir}/maya4/train
+  val_dir: ${paths.data_dir}/maya4/val
+  test_dir: ${paths.data_dir}/maya4/test
   patch_size: ${patch_size}
   batch_size: 4
   num_workers: 4
@@ -76,7 +78,4 @@ callbacks:
   monitor_val_recon:
     log_every_n_epochs: 1
     num_images: 3
-    verbose: True
-  
-  monitor_fix_patch:
     verbose: True

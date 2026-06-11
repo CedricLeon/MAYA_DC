@@ -4,7 +4,8 @@ defaults:
   - model_summary
   - rich_progress_bar
   - monitor_val_recon
-  - monitor_fixed_patch
+  # monitor_fixed_patch is opt-in: it needs a local product (see configs/fixed_patches/).
+  # Add it back to this list (or via `callbacks=...`) once patch_json points at a real product.
   - _self_
 
 model_checkpoint:
