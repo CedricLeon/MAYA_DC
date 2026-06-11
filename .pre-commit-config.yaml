@@ -67,6 +67,9 @@ repos:
             --ignore-nested-functions,
             -vv,
           ]
+        # Docstring coverage is enforced on the library (src/) only; notebooks/ and
+        # scripts/ are exploratory/operational analysis code.
+        exclude: ^(notebooks|scripts)/
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8

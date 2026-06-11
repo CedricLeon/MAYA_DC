@@ -1,0 +1,35 @@
+{
+  "input_dir": "/lustre/scratch/1001/rdelprete/ssm_dataset/focused/PT3",
+  "codec": "webp",
+  "codec_name": "WebP",
+  "qualities": [
+    5,
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90,
+    95
+  ],
+  "representation": "channels",
+  "eval_domain": "slc",
+  "patch_size": [
+    512,
+    512
+  ],
+  "azimuth_buffer": 512,
+  "batch_size": 4,
+  "num_workers": 0,
+  "max_products": 1,
+  "samples_per_prod": 32,
+  "limit_batches": null,
+  "group_label": "WebP (2xGray, eval=slc)",
+  "batches_processed": 8,
+  "samples_processed": 32,
+  "raw_csv": "/lustre/projects/1001/rdelprete/MAYA_DC/notebooks/cache/webp_baseline_rcmc_channels_slc_summary_per_patch.csv",
+  "summary_csv": "/lustre/projects/1001/rdelprete/MAYA_DC/notebooks/cache/webp_baseline_rcmc_channels_slc_summary.csv"
+}
