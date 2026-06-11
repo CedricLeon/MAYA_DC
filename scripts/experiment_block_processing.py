@@ -1,3 +1,11 @@
+"""Study the effect of the azimuth-focusing buffer size.
+
+Standalone experiment (not part of the training pipeline): focuses a fixed RCMC
+block with the sarpyx ``CoarseRDA`` processor under different azimuth buffer
+sizes and inspects how much azimuth context the focusing needs before the
+result stabilises. Used to justify the ``azimuth_buffer`` choice in the configs.
+"""
+
 import argparse
 import gc
 import sys
