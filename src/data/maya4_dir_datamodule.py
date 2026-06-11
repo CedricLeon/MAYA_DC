@@ -16,6 +16,9 @@ then filtered by the ephemeris check and capped by ``max_products_*``.
 from __future__ import annotations
 
 import logging
+import os
+import re
+from datetime import datetime
 from pathlib import Path
 
 import lightning
@@ -39,6 +42,42 @@ from maya4.normalization import NormalizationModule
 from src.data.maya4_datamodule import RCMCSARDataset, _collate_sar_batch
 
 log = logging.getLogger(__name__)
+
+
+def _parse_product_filename_compat(filename: str | Path) -> dict | None:
+    """Parse both legacy `s1a-...` and newer `s1c-...` MAYA product names."""
+    parsed = parse_product_filename(filename)
+    if parsed is not None:
+        return parsed
+
+    sep = re.escape(os.sep)
+    pattern = (
+        rf"(?P<part>[a-zA-Z0-9]+){sep}(?P<mission>s1[a-zA-Z0-9]+)-s(?P<stripmap_mode>[a-zA-Z0-9]+)-raw-s-"
+        r"(?P<polarization>[a-zA-Z0-9]+)-(?P<start_date>\d{8})t\d+-\d{8}t\d+-\d+-[a-zA-Z0-9]+\.zarr"
+    )
+    filename = Path(filename)
+    parent_and_name = str(Path(filename.parent.name) / filename.name)
+    match = re.match(pattern, parent_and_name)
+    if not match:
+        return None
+
+    stripmap_mode = match.group("stripmap_mode")
+    polarization = match.group("polarization")
+    start_date = match.group("start_date")
+    product_name = re.sub(r"-s\d+-raw-s-\w+-", "-", filename.name).split(".zarr")[0]
+
+    return {
+        "product_name": product_name,
+        "stripmap_mode": int(stripmap_mode),
+        "polarization": polarization,
+        "acquisition_date": datetime.strptime(start_date, "%Y%m%d"),
+        "full_name": filename,
+        "part": match.group("part"),
+        "store": None,
+        "lat": None,
+        "lon": None,
+        "samples": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +109,7 @@ class RCMCSARDirDataset(RCMCSARDataset):
     def _build_file_list(self) -> None:
         """Scans ``self._product_dir`` recursively for ``*.zarr`` files, parses their filenames,"""
         found = sorted(self._product_dir.rglob("*.zarr"))
-        records = [r for f in found if (r := parse_product_filename(f)) is not None]
+        records = [r for f in found if (r := _parse_product_filename_compat(f)) is not None]
         if skipped := len(found) - len(records):
             log.warning("RCMCSARDirDataset: %d zarr paths could not be parsed, skipped.", skipped)
         self._files = (

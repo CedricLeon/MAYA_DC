@@ -164,6 +164,23 @@ class MonitorValReconstruction(Callback):
             f"SLC target |·| ∈ [{slc_t_min:.3e}, {slc_t_max:.3e}]"
         )
 
+        # ── Metrics for per-patch titles and figure summary ───────────
+        # Metrics are computed on normalised [0,1] tensors so they are
+        # directly comparable to the module's validation_step scalars
+        # (where forward_with_az_compression returns normalised SLC).
+        # slc_batch is already normalised by the dataloader; slc_recon is
+        # physical-scale and must be re-normalised before calling metrics.
+        slc_recon_norm = minmax_normalize(slc_recon, GT_MIN, GT_MAX)
+        slc_target_core_norm = slc_batch[:, :, az_buffer : az_buffer + Az_core, :]
+        patch_metrics: list[tuple[float, float, float]] = []
+        for col_idx in range(n):
+            pred_patch = slc_recon_norm[col_idx : col_idx + 1]
+            target_patch = slc_target_core_norm[col_idx : col_idx + 1]
+            patch_psnr = psnr_amplitude(pred_patch, target_patch).item()
+            patch_ssim = ssim_amplitude(pred_patch, target_patch).item()
+            patch_coherence, _ = complex_correlation_metric(pred_patch, target_patch)
+            patch_metrics.append((patch_psnr, patch_ssim, patch_coherence.item()))
+
         # ── Build figure ──────────────────────────────────────────────
         # Extra width per column to accommodate per-image colorbars
         fig, axes = plt.subplots(4, n, figsize=(5 * n, 17), squeeze=False)
@@ -176,10 +193,10 @@ class MonitorValReconstruction(Callback):
 
             for col_idx, img_np in enumerate(row_imgs_clipped):
                 ax = axes[row_idx, col_idx]
-                # img_np shape is (Az, Rg) -- transpose to (Rg, Az) so azimuth
-                # runs left→right and range runs top→bottom.
+                # img_np shape is (Az, Rg): rows = azimuth (vertical, top→bottom),
+                # cols = range (horizontal, left→right). No transpose needed.
                 im = ax.imshow(
-                    img_np.T,
+                    img_np,
                     cmap="viridis",
                     aspect="auto",
                     origin="upper",
@@ -202,19 +219,21 @@ class MonitorValReconstruction(Callback):
                         weight="bold",
                     )
                 if row_idx == 0:
-                    ax.set_title(f"Patch {col_idx}", fontsize=9)
+                    patch_psnr, patch_ssim, patch_coherence = patch_metrics[col_idx]
+                    ax.set_title(
+                        (
+                            f"Patch {col_idx}\n"
+                            f"PSNR: {patch_psnr:.2f} dB | "
+                            f"SSIM: {patch_ssim:.3f} | "
+                            f"Coherence: {patch_coherence:.3f}"
+                        ),
+                        fontsize=9,
+                    )
                 # Per-image colorbar (steals space from this axes only)
                 cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
                 cbar.ax.tick_params(labelsize=6)
 
         # ── Summary metrics for the figure title ──────────────────────
-        # Metrics are computed on normalised [0,1] tensors so they are
-        # directly comparable to the module's validation_step scalars
-        # (where forward_with_az_compression returns normalised SLC).
-        # slc_batch is already normalised by the dataloader; slc_recon is
-        # physical-scale and must be re-normalised before calling metrics.
-        slc_recon_norm = minmax_normalize(slc_recon, GT_MIN, GT_MAX)
-        slc_target_core_norm = slc_batch[:, :, az_buffer : az_buffer + Az_core, :]
         psnr_slc = psnr_amplitude(slc_recon_norm, slc_target_core_norm).item()
         ssim_slc = ssim_amplitude(slc_recon_norm, slc_target_core_norm).item()
         phase_err = phase_preservation_metric(slc_recon_norm, slc_target_core_norm)[0].item()

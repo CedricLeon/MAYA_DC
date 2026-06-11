@@ -275,6 +275,7 @@ def full_azimuth_compress_batch(
     buffer_size: int = 500,
     device: Any = "cpu",
     coords_batch: Optional[Any] = None,
+    use_filter_cache: bool = True,
 ) -> Tensor:
     """Azimuth-focus a batch of RCMC patches, preserving torch gradients.
 
@@ -334,11 +335,11 @@ def full_azimuth_compress_batch(
             coords = coords_batch[b] if isinstance(coords_batch, list) else coords_batch
             cache_key = (str(coords.get("zfile", "")), int(coords.get("x", -1)), Az, Rg)
 
-        if cache_key is not None and cache_key in _FILTER_CACHE:
+        if use_filter_cache and cache_key is not None and cache_key in _FILTER_CACHE:
             H_np = _FILTER_CACHE[cache_key]
         else:
             H_np = compute_azimuth_filter(meta, eph, Az, Rg)  # (Az, Rg) complex128
-            if cache_key is not None:
+            if use_filter_cache and cache_key is not None:
                 _FILTER_CACHE[cache_key] = H_np
 
         # H is a constant w.r.t. radar data → torch.from_numpy has no grad_fn.

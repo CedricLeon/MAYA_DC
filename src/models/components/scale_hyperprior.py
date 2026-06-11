@@ -13,17 +13,23 @@ from torch import Size, Tensor
 
 @dataclass
 class Likelihoods:
+    """Likelihoods for the main latent representation `y` and the hyperprior `z`."""
+
     y: Tensor
     z: Tensor
 
 
 @dataclass
 class ForwardOutput:
+    """Output of the forward pass through the model, containing the reconstructed output and
+    likelihoods."""
+
     x_hat: Tensor
     likelihoods: Likelihoods
 
 
 def make_activation(act_name: str, channels: int, inverse: bool = False) -> nn.Module:
+    """Return an activation module based on the given name."""
     t = act_name.lower()
     if t == "gdn":
         return GDN(channels, inverse=inverse)
@@ -52,6 +58,7 @@ class ScaleHyperprior(CompressionModel):
         nb_channels_main: int = 128,
         nb_channels_latent: int = 256,
         activation: str = "gdn",
+        non_square_kernels: bool = False,
     ):
         super().__init__()
         N = nb_channels_main
@@ -59,46 +66,71 @@ class ScaleHyperprior(CompressionModel):
         self.nb_input_channels: int = nb_input_channels
         self.nb_channels_latent: int = nb_channels_latent
         self.activation: str = activation
+        self.non_square_kernels: bool = non_square_kernels
+
+        # Non-square kernel helpers.
+        # Tensors have shape (B, C, Az, Rg), so H = azimuth, W = range.
+        # When non_square_kernels=True, the azimuth (H) dimension of every kernel is
+        # scaled by _NSK_FACTOR relative to the range (W) dimension.
+        # Factor 3 matches the 3:1 Az:Rg aspect ratio of the default patch
+        # (Az + 2*buf : Rg = 1536 : 512), giving the network more azimuth context per step.
+        # Padding is kept 'same' for stride-1 layers and halved-output for stride-2 layers.
+        _NSK_FACTOR = 3
+
+        def ks(k: int) -> int | tuple[int, int]:
+            """Return kernel size: k (square) or (k*factor, k) i.e. (kH_az, kW_rg) (non-square)."""
+            return (k * _NSK_FACTOR, k) if non_square_kernels else k
+
+        def pd(k: int) -> int | tuple[int, int]:
+            """Return 'same' padding: scalar (square) or (pH_az, pW_rg) (non-square)."""
+            return (
+                ((k * _NSK_FACTOR - 1) // 2, (k - 1) // 2) if non_square_kernels else (k - 1) // 2
+            )
 
         self.entropy_bottleneck: EntropyBottleneck = EntropyBottleneck(N)
         self.gaussian_conditional: GaussianConditional = GaussianConditional(None)
 
         self.g_a = nn.Sequential(
-            nn.Conv2d(self.nb_input_channels, N, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(self.nb_input_channels, N, kernel_size=ks(5), stride=2, padding=pd(5)),
             make_activation(self.activation, N),
-            nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5)),
             make_activation(self.activation, N),
-            nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5)),
             make_activation(self.activation, N),
-            nn.Conv2d(N, M, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(N, M, kernel_size=ks(5), stride=2, padding=pd(5)),
         )
 
         self.g_s = nn.Sequential(
-            nn.ConvTranspose2d(M, N, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(M, N, kernel_size=ks(5), stride=2, padding=pd(5), output_padding=1),
             make_activation(self.activation, N, inverse=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5), output_padding=1),
             make_activation(self.activation, N, inverse=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5), output_padding=1),
             make_activation(self.activation, N, inverse=True),
             nn.ConvTranspose2d(
-                N, self.nb_input_channels, kernel_size=5, stride=2, padding=2, output_padding=1
+                N,
+                self.nb_input_channels,
+                kernel_size=ks(5),
+                stride=2,
+                padding=pd(5),
+                output_padding=1,
             ),
         )
 
         self.h_a = nn.Sequential(
-            nn.Conv2d(M, N, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(M, N, kernel_size=ks(3), stride=1, padding=pd(3)),
             nn.ReLU(inplace=True),
-            nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5)),
             nn.ReLU(inplace=True),
-            nn.Conv2d(N, N, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5)),
         )
 
         self.h_s = nn.Sequential(
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5), output_padding=1),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(N, N, kernel_size=5, stride=2, padding=2, output_padding=1),
+            nn.ConvTranspose2d(N, N, kernel_size=ks(5), stride=2, padding=pd(5), output_padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(N, M, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(N, M, kernel_size=ks(3), stride=1, padding=pd(3)),
             nn.ReLU(inplace=True),
         )
 
@@ -135,12 +167,18 @@ class ScaleHyperprior(CompressionModel):
         - ``g_a.6.weight`` shape is ``(M, N, kH, kW)``
           → ``nb_channels_latent M = size(0)``
         - Activation detected by presence of GDN parameter ``g_a.1._beta``.
+        - Non-square kernels detected by ``kW != kH`` in ``g_a.0.weight``.
         """
         nb_input_channels = state_dict["g_a.0.weight"].size(1)
         nb_channels_main = state_dict["g_a.0.weight"].size(0)  # N
         nb_channels_latent = state_dict["g_a.6.weight"].size(0)  # M
         activation = "gdn" if "g_a.1._beta" in state_dict else "relu"
-        net = cls(nb_input_channels, nb_channels_main, nb_channels_latent, activation)
+        non_square_kernels = state_dict["g_a.0.weight"].size(-1) != state_dict[
+            "g_a.0.weight"
+        ].size(-2)
+        net = cls(
+            nb_input_channels, nb_channels_main, nb_channels_latent, activation, non_square_kernels
+        )
         net.load_state_dict(state_dict)
         return net
 

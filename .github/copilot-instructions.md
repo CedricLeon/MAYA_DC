@@ -20,21 +20,21 @@ The codebase is a hybrid of deep learning (PyTorch Lightning + Hydra) and signal
     - **Pipeline**:
       - Compress RCMC data using NIC models create $\hat{RCMC}$, compare input RCMC to $\hat{RCMC}$ and also perform Azimuth Compression on $\hat{RCMC}$ to generate $\hat{SLC}$ and compare SLC and $\hat{SLC}$.
     - **Project Structure**:
-      - Source code in `src/` and standalone scripts in `scripts/` (e.g., `sarpyx_azimuth_compression.py` that replicate the SAR focusing pipeline (RCMC $\to$ SLC) via `sarpyx` to validate compression quality.);
-      - All configs are in `configs/` and tests should be written in `tests/`;
-      - Data resides in `data/`; while runs and results are stored in `logs/`;
-      - Local packages used for the projects are stored in `Maya4/` (MAYA4) and `srp/` (sarpyx).
+      - Source code in `src/`; standalone scripts in `scripts/` (e.g., `validate_azimuth_pipeline.py`, which replicates the SAR focusing pipeline (RCMC $\to$ SLC) via `sarpyx` to validate compression quality); analysis in `notebooks/`;
+      - All configs are in `configs/` and tests in `tests/`;
+      - Data resides in `data/` (gitignored); runs/results under `logs/`;
+      - `maya4` (dataset) and `sarpyx` (SAR processing) install automatically from `pyproject.toml` (maya4 + compressai from git, sarpyx from PyPI) — no local clones.
 
 ## Critical Workflows & Commands
 *Every command that require packages should be run inside the `MAYA_DC` conda environment.*
 - **Training**:
     ```bash
-    python src/train.py experiment=example
+    python src/train.py experiment=rcmc_compress_baseline
     ```
 - **Azimuth Compression (Verification)**:
-    - Use `scripts/sarpyx_azimuth_compression.py` for to experiment with the azimuth focusing pipeline.
+    - Use `scripts/validate_azimuth_pipeline.py` to check the differentiable focusing vs sarpyx CoarseRDA.
     ```bash
-    python scripts/sarpyx_azimuth_compression.py --input_file data/PT4/sample.zarr
+    python scripts/validate_azimuth_pipeline.py --input_file <product>.zarr
     ```
 - **Debugging**:
     - Use `debug=fdr` (or other) in Hydra commands.
@@ -71,7 +71,7 @@ count_row = min(last_row_chunk * chunk_rows, full_rows)
 - **Display**: Always use **log-intensity**: `logI = ln(re² + im² + ε)` from `phys_to_logI_torch`.
   Clip for contrast: `mean ± clip_factor·std` (default `clip_factor=3.0`).
   Always use the **`viridis`** colormap. Never display raw real/imag channels or linear amplitude directly.
-- **Orientation**: **(0, 0) is at the top-left corner**. Azimuth is the **horizontal axis, left → right** (Az=0 at the left edge). Range is the **vertical axis, top → bottom** (Rg=0 at the top). Implementation: data shape is `(Az, Rg)`; transpose to `(Rg, Az)` before `imshow`, set `extent=[az_start, az_stop, rg_stop, rg_start]` (origin="upper"). No x-axis inversion needed. Use `ax.set_facecolor("black")` so non-downloaded chunks appear black.
+- **Orientation**: **(0, 0) is at the top-left corner**. Azimuth is the **vertical axis, top → bottom** (Az=0 at the top edge). Range is the **horizontal axis, left → right** (Rg=0 at the left edge). Implementation: data shape is `(Az, Rg)`; display directly without transposing — matplotlib rows = azimuth (vertical), cols = range (horizontal). Use `origin="upper"` and `ax.set_xlabel("Range →")` / `ax.set_ylabel("Azimuth ↓")`. Use `ax.set_facecolor("black")` so non-downloaded chunks appear black.
 - **Metrics**: Always compute on **linear amplitude**: `|·| = sqrt(re² + im²)` from `phys_to_linA_torch`,
   or on the normalised `[0, 1]` domain.
   **Never compute PSNR, SSIM, coherence, or KDE on log-scale data.**

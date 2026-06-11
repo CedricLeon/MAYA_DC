@@ -1,5 +1,8 @@
 # MAYA_DC — Convergence Analysis
 
+> **Historical (March 2026).** Convergence diagnosis from an epoch-50 run during EUSAR26
+> development. Kept as a record; not updated after the 2026-06 cleanup.
+
 **Last updated:** March 2026 — epoch 50 run, pre-session fixes (BUG 27/28/15 applied)
 **Training mode:** `slc` · Loss: `CompoundCompressionLoss` · λ=10 · δ_kde=1 · δ_coh=1
 

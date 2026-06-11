@@ -95,6 +95,14 @@ class RCMCSARDataset(SARZarrDataset):
 
     def _drop_files_without_ephemeris(self) -> None:
         """Filter out zarr files that lack ephemeris data in their metadata."""
+        if "full_name" not in self._files.columns or len(self._files) == 0:
+            log.info(
+                "RCMCSARDataset: 0/0 products valid after ephemeris check (dropped 0); using 0 (cap=%s)",
+                self._max_products_cap,
+            )
+            self._files = self._files.iloc[0:0].copy()
+            return
+
         all_files = self.get_files()
         valid = []
         for zfile in all_files:
@@ -122,9 +130,8 @@ class RCMCSARDataset(SARZarrDataset):
             self._max_products_cap,
         )
         valid_set = {str(f) for f in valid}
-        self._files = self._files[
-            self._files["full_name"].apply(lambda p: str(p) in valid_set)
-        ].reset_index(drop=True)
+        mask = self._files["full_name"].apply(lambda p: str(p) in valid_set)
+        self._files = self._files.loc[mask].reset_index(drop=True)
 
     # ------------------------------------------------------------------
     def _load_metadata(self, zfile: str) -> tuple[Any, Any]:

@@ -3,8 +3,9 @@
 # Specify here default configuration, the order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - data: mnist
-  - model: mnist
+  - data: maya4_dir
+  - model: rcmc_compress
+  - training_mode: slc
   - callbacks: default
   - logger: wandb
   - trainer: default
@@ -25,6 +26,10 @@ defaults:
 
   # debugging config (enable through command line, e.g. `python train.py debug=default)
   - debug: null
+
+# Shared patch geometry — referenced by data + training_mode (experiments override).
+patch_size: [512, 512]
+azimuth_buffer: 512
 
 # Specify logs subdirectory path, it is overridden in each experiment file
 task_name: "default"

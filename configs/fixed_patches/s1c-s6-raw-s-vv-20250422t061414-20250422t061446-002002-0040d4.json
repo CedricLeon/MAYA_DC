@@ -1,0 +1,16 @@
+{
+  "_comment": "Fixed patch for the (opt-in) MonitorFixedPatch callback. 'product' must resolve to a LOCAL zarr; this product lives in the ESA-philab/Maya4 HF bucket — set an absolute path to your local copy.",
+  "product": "s1c-s6-raw-s-vv-20250422t061414-20250422t061446-002002-0040d4.zarr",
+  "part": "PT1",
+  "date": "2025-04-22",
+  "rcmc_shape": [
+    54048,
+    20054
+  ],
+  "az_start": 11000,
+  "az_end": 13048,
+  "rg_start": 5500,
+  "rg_end": 7548,
+  "az_lines": 2048,
+  "rg_samples": 2048
+}

@@ -4,12 +4,12 @@
 # This combines model, data, and trainer settings
 
 defaults:
-  - /training_mode: rcmc   # switch with: training_mode=slc_mse | training_mode=slc
-  - override /data: maya4.yaml
+  - /training_mode: slc   # switch with: training_mode=slc_mse | training_mode=slc
+  - override /data: maya4_dir.yaml
   - override /model: rcmc_compress.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
-  - override /trainer: gpu.yaml
+  - override /trainer: ddp.yaml
   - override /hydra: default.yaml
 
 # Experiment metadata
@@ -26,12 +26,13 @@ seed: 42
 #           patch=2048 buffer=512 -> 3072 (3072/16=192 ✓)  ~12 GB VRAM (requires A100+)
 patch_size: [512, 512]
 azimuth_buffer: 512
+lambda: ${model.criterion.lmbda}
 
 # Trainer configuration
 trainer:
-  max_epochs: 500
+  max_epochs: 30
   accelerator: "gpu"
-  devices: 1
+  devices: 4
   precision: "32-true"  # cuFFT needs power-of-2 sizes for "16-mixed"
 
   # Validation and checkpointing
@@ -41,14 +42,19 @@ trainer:
 
 # Data configuration
 data:
+  # Local directories of zarr products, one per split. Populate them (e.g. download from
+  # the ESA-philab/Maya4 bucket) or stream online instead — see docs/QUICKSTART.md.
+  train_dir: ${paths.data_dir}/maya4/train
+  val_dir: ${paths.data_dir}/maya4/val
+  test_dir: ${paths.data_dir}/maya4/test
   patch_size: ${patch_size}
   batch_size: 4
   num_workers: 4
   max_products_train: 10
   max_products_val: 2
   max_products_test: 2
-  samples_per_prod: 100   # patches per product per epoch; 0 = all
-  online: true          # set true ONCE to download; keep false afterward
+  samples_per_prod: 1000   # patches per product per epoch; 0 = all
+  online: false          # keep false on compute nodes; enable only on a node with outbound network
   azimuth_buffer: ${azimuth_buffer}
 
 # Model configuration
@@ -57,16 +63,19 @@ data:
 # Override per-run: model.criterion.lmbda=0.001
 model:
   azimuth_buffer: ${azimuth_buffer}
+  criterion:
+    lmbda: 1000
 
 # Logging
 logger:
   wandb:
     entity: "cedric-leonard"
     project: "MAYA_DC"
-    offline: False
+    offline: True
 
 # Callbacks
 callbacks:
   monitor_val_recon:
     log_every_n_epochs: 1
     num_images: 3
+    verbose: True

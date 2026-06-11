@@ -1,11 +1,14 @@
 # Progress tracking
 
+> **Historical** — original shared research TODO from the EUSAR26 push. Kept for context,
+> not maintained after the 2026-06 cleanup; a couple of dead links were repointed.
+
 ## Aim EUSAR 2026
 
 *Shared TODO list to track progress and leftover tasks.*
 
 - [x] Get familiar with MAYA4 dataset
-  - [x] See [download_maya4_data.py](scripts/download_maya4_data.py) to download samples of the dataset. The goal is to do it once and then work offline.
+  - [x] Download samples of the dataset once, then work offline. (The download helper was removed in cleanup — data now lives in the `ESA-philab/Maya4` HF bucket; stream with `data.online=true`.)
   - [ ] Select few specific tiles to make a dataset
     - How many tiles?
       - start with a train set containing 500 patches, just for a first experiment and seeing if the network converges. Then try larger: the larger the better but we don't have all the time in the world
@@ -17,7 +20,7 @@
 
 - [x] Get familiar with sarpyx processing pipeline
   - [x] Extract and re-implement the azimuth compression pipeline
-  - [x] Ensure manual implementation generate similar results than $az$ products, see [sarpyx_azimuth_compression.py](scripts/sarpyx_azimuth_compression.py)
+  - [x] Ensure manual implementation generates similar results to the $az$ products — see `scripts/validate_azimuth_pipeline.py` (impl: `src/utils/sarpyx_azimuth_compression.py`)
 
 - [ ] Model architecture implementation
   - [x] `nn.Module` implementation

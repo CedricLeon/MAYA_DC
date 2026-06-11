@@ -1,0 +1,31 @@
+{
+  "input_dir": "/lustre/scratch/1001/rdelprete/ssm_dataset/focused/PT3",
+  "codec": "jpeg2000",
+  "codec_name": "JPEG2000",
+  "qualities": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64
+  ],
+  "representation": "channels",
+  "eval_domain": "slc",
+  "patch_size": [
+    512,
+    512
+  ],
+  "azimuth_buffer": 512,
+  "batch_size": 4,
+  "num_workers": 0,
+  "max_products": 1,
+  "samples_per_prod": 32,
+  "limit_batches": null,
+  "group_label": "JPEG2000 (2xGray, eval=slc)",
+  "batches_processed": 8,
+  "samples_processed": 32,
+  "raw_csv": "/lustre/projects/1001/rdelprete/MAYA_DC/notebooks/cache/jpeg2000_baseline_rcmc_channels_slc_summary_per_patch.csv",
+  "summary_csv": "/lustre/projects/1001/rdelprete/MAYA_DC/notebooks/cache/jpeg2000_baseline_rcmc_channels_slc_summary.csv"
+}

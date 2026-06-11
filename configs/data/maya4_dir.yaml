@@ -7,9 +7,9 @@ train_dir: null
 val_dir: null
 test_dir: null
 
-# Patch configuration
-patch_size: ???
-azimuth_buffer: ???
+# Patch configuration (defaults; the baseline experiment overrides via ${patch_size})
+patch_size: [512, 512]
+azimuth_buffer: 512
 
 # Training configuration
 batch_size: 4

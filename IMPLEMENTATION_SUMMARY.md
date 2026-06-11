@@ -1,5 +1,9 @@
 # MAYA_DC — Implementation Summary
 
+> **Historical (March 2026).** Bug-fix/feature history (F1–F15) and design notes from the
+> EUSAR26 development. Kept as a record; not updated after the 2026-06 cleanup — verify
+> specifics against the code.
+
 **Date:** March 2026
 **Status:** ✅ Pipeline implemented and gradient-verified (10-epoch run, no null/zero grads). Loss convergence is the active open problem.
 
@@ -212,6 +216,7 @@ the module's `validation_step`.
 
 **File:** `Maya4/maya4/dataloader.py` (`KPatchSampler.__len__`)
 **Root cause:** Two-layer problem.
+
 1. `SARZarrDataset.__len__` returns `self._samples_per_prod * n_files` — when
    `samples_per_prod=0` this is always `0` (documented as a "sentinel", but
    indistinguishable from an empty dataset).
@@ -480,15 +485,14 @@ or ephemeris is missing the step will raise.
 All SAR image plots use the following axes convention:
 
 - **(0, 0) is at the top-left corner**.
-- **Azimuth** = horizontal axis, increasing **left → right** (Az=0 at the left edge).
-- **Range** = vertical axis, increasing **top → bottom** (Rg=0 at the top).
+- **Azimuth** = vertical axis, increasing **top → bottom** (Az=0 at the top edge).
+- **Range** = horizontal axis, increasing **left → right** (Rg=0 at the left edge).
 
 Implementation:
 
-- Data arrays have shape `(Az, Rg)`. Transpose to `(Rg, Az)` before `imshow`.
-- `extent=[az_start, az_stop, rg_stop, rg_start]` with `origin="upper"` → range grows downward, no x-axis inversion needed.
-- `ax.set_xlim(-az_max*0.03, az_max*1.03)` for padding (normal, not inverted).
-- `ax.set_ylim(rg_max*1.03, -rg_max*0.03)` inverts the y-axis so Rg=0 is at the top.
+- Data arrays have shape `(Az, Rg)`. Display directly without transposing — matplotlib treats the first axis as rows (vertical = azimuth) and the second as columns (horizontal = range).
+- `origin="upper"` keeps Az=0 at the top.
+- `ax.set_xlabel("Range →")`, `ax.set_ylabel("Azimuth ↓")`.
 - `ax.set_facecolor("black")` → non-downloaded chunks appear black instead of the default white background.
 
 ---
@@ -602,6 +606,25 @@ callbacks:
     clip_factor: 3.0
     verbose: false
 ```
+
+### IMPROVE 33 - Non-square convolution kernels in `ScaleHyperprior`
+
+**Files:** `src/models/components/scale_hyperprior.py`, `configs/model/rcmc_compress.yaml`
+**Change:** Added `non_square_kernels: bool = False` parameter to `ScaleHyperprior.__init__`.
+When `True`, every kernel's range (W) dimension is scaled by a factor of 3 relative to the
+azimuth (H) dimension, matching the 3:1 Az:Rg aspect ratio of the default full patch
+(Az + 2*buffer : Rg = 1536 : 512):
+
+| Layer type | Square | Non-square |
+| :--- | :--- | :--- |
+| Main 5x5 conv / convT | `kernel=(5,5)` `pad=(2,2)` | `kernel=(15,5)` `pad=(7,2)` |
+| Hyper 3x3 conv | `kernel=(3,3)` `pad=(1,1)` | `kernel=(9,3)` `pad=(4,1)` |
+| Hyper 5x5 conv / convT | `kernel=(5,5)` `pad=(2,2)` | `kernel=(15,5)` `pad=(7,2)` |
+
+Padding is kept 'same' for all stride-1 layers; for stride-2 layers the halved-output
+property is preserved (`output_padding=1` in `ConvTranspose2d` is unaffected).
+`from_state_dict` auto-detects the setting by comparing `kH` vs `kW` of `g_a.0.weight`.
+Enabled via config: `model.net.non_square_kernels=true`.
 
 ---
 

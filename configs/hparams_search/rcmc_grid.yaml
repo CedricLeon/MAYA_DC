@@ -1,0 +1,18 @@
+# @package _global_
+
+# Grid sweep for the baseline RCMC compression experiment.
+# Run locally with:
+#   python src/train.py hparams_search=rcmc_grid experiment=rcmc_compress_baseline
+# (the paper sweep was run on the cluster — see docs/cluster.md)
+
+hydra:
+  mode: MULTIRUN
+
+  sweeper:
+    params:
+      # Paper rate-distortion sweep (λ).
+      model.criterion.lmbda: 1,3,5,7,8,10,15,20,35,50,100,1000
+      seed: 0,1,2
+logger:
+  wandb:
+    group: "rcmc_grid"

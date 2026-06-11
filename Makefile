@@ -26,5 +26,10 @@ test: ## Run not slow tests
 test-full: ## Run all tests
 	pytest
 
-train: ## Train the model
-	python src/train.py
+train: ## Train the baseline experiment
+	python src/train.py experiment=rcmc_compress_baseline
+
+debug: ## Fast dev run (smoke test)
+	python src/train.py experiment=rcmc_compress_baseline debug=fdr
+
+# Cluster (PBS / ESA SpaceHPC) launch + sweep commands live in docs/cluster.md.
