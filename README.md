@@ -57,36 +57,30 @@ Because we cannot process the complete image $A$ we manipulate it as *patches*, 
 
 ## Installation
 
-All Python dependencies are declared in `pyproject.toml`. `environment.yaml`
-pins the Python interpreter (3.12) and runs a single `pip install -e ".[dev]"`.
+All Python dependencies are declared in `pyproject.toml` and install
+automatically — including the SAR packages `maya4` and `sarpyx` (**no manual
+cloning needed**). `environment.yaml` pins the Python interpreter (3.12) and runs
+a single `pip install -e ".[dev]"`.
 
-> **Prerequisites:** `Maya4/` and `srp/` are not included in this
-> git repository (they are internal packages). Clone or copy them into the
-> repo root before running the install step:
->
-> ```bash
-> git clone https://github.com/sirbastiano/Maya4.git
-> git clone https://github.com/sirbastiano/srp
-> ```
+> **Note:** `maya4` and `compressai` currently install from git (the fixes we
+> need aren't on PyPI yet — see the comments in `pyproject.toml`); `sarpyx`
+> installs from PyPI. A C/C++ compiler must be available to build `compressai`.
 
 ```bash
 # 1. Clone the repo
 git clone <repo_url>
 cd MAYA_DC
 
-# 2. Place Maya4/ and srp/ in the repo root (see above)
-
-# 3. Create the environment (run from repo root)
+# 2. Create the environment (run from repo root)
 conda env create -f environment.yaml
 conda activate MAYA_DC
 
-# 4. Verify
+# 3. Verify
 python -c "import torch, lightning, hydra, compressai, maya4, sarpyx; print('All OK')"
 ```
 
 > **Without conda:** `pip install -e ".[dev]"` from the repo root works too — it
-> installs everything including `maya4` and `sarpyx` as editable local
-> packages via the `file:` references in `pyproject.toml`.
+> installs everything, pulling `maya4`/`compressai` from git and `sarpyx` from PyPI.
 
 To update after pulling new changes:
 

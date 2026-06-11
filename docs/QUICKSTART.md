@@ -26,13 +26,9 @@ Package versions live in `pyproject.toml`. `environment.yaml` pins the Python
 interpreter and delegates all pip installs to `pyproject.toml` in one shot.
 Run from the **repo root**:
 
-> **Before creating the env:** `Maya4/` and `srp/` are **not**
-> included in this git repository. Clone or copy them into the repo root first:
->
-> ```bash
-> git clone https://github.com/sirbastiano/Maya4.git
-> git clone https://github.com/sirbastiano/srp
-> ```
+> **Dependencies install automatically** — no manual cloning of `maya4`/`sarpyx`.
+> `maya4` and `compressai` install from git (fixes not yet on PyPI; see
+> `pyproject.toml`), `sarpyx` from PyPI. A C/C++ compiler is needed for `compressai`.
 
 ```bash
 conda env create -f environment.yaml
@@ -47,8 +43,8 @@ conda env update -f environment.yaml --prune
 ```
 
 > **Without conda:** `pip install -e ".[dev]"` from the repo root installs
-> everything (including `maya4`, and `sarpyx` as editable local packages)
-> into whatever Python environment is currently active.
+> everything (pulling `maya4`/`compressai` from git, `sarpyx` from PyPI) into
+> whatever Python environment is currently active.
 
 ### 2 · Data
 
