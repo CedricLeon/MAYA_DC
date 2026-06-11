@@ -16,8 +16,8 @@ net:
 # the key exists before the group merges its values.
 criterion:
   lmbda: 0.01      # default fallback; overridden by experiment configs
-  patch_size: ???  # must be provided (set by training_mode group via ${patch_size})
-  azimuth_buffer: ???  # must be provided (set by training_mode group via ${azimuth_buffer})
+  patch_size: [512, 512]  # default; training_mode group overrides via ${patch_size}
+  azimuth_buffer: 512      # default; training_mode group overrides via ${azimuth_buffer}
 
 # Azimuth compression
 azimuth_buffer: 512
