@@ -159,3 +159,9 @@ outputs/
 .aim
 LOGS/
 notebooks/cache/
+
+# Local agent/tooling artifacts
+.agents/
+.codex/
+AGENTS.md
+uv.lock

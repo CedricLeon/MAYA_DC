@@ -26,9 +26,7 @@ from src.utils import pylogger
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
-def _normalize_logging_payload(
-    payload: Any, *, throw_on_missing: bool = False
-) -> Any:
+def _normalize_logging_payload(payload: Any, *, throw_on_missing: bool = False) -> Any:
     """Convert Hydra/OmegaConf payloads into plain nested Python containers.
 
     W&B and some Lightning logger paths can stringify unsupported objects such as
@@ -352,6 +350,8 @@ def early_wandb_initialization(cfg: DictConfig) -> None:
         # Add a Lightning callback triggering the sync after each epoch
         # Adding it this way makes it invisible for the user, but it won't appear in the HYDRA config (it will be printed in the logs though)
         with omegaconf.open_dict(cfg):
+            if cfg.get("callbacks") is None:
+                cfg.callbacks = {}
             cfg.callbacks.wandb_osh = {
                 "_target_": "wandb_osh.lightning_hooks.TriggerWandbSyncLightningCallback"
             }
@@ -436,14 +436,14 @@ def task_wrapper(task_func: Callable) -> Callable:
             metric_dict, object_dict = task_func(cfg=cfg)
 
         # things to do if exception occurs
-        except Exception as ex:
+        except Exception:
             # save exception to `.log` file
             log.exception("")
 
             # some hyperparameter combinations might be invalid or cause out-of-memory errors
             # so when using hparam search plugins like Optuna, you might want to disable
             # raising the below exception to avoid multirun failure
-            raise ex
+            raise
 
         # things to always do after either success or exception
         finally:

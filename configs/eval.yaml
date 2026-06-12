@@ -5,7 +5,7 @@ defaults:
   - data: maya4_dir
   - model: rcmc_compress
   - training_mode: slc
-  - logger: wandb
+  - logger: csv
   - trainer: default
   - paths: default
   - extras: default
