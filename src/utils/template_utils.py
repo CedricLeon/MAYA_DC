@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import warnings
 from importlib.util import find_spec
 from pathlib import Path
@@ -23,6 +24,54 @@ from rich.prompt import Prompt
 from src.utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
+
+
+def _normalize_logging_payload(
+    payload: Any, *, throw_on_missing: bool = False
+) -> Any:
+    """Convert Hydra/OmegaConf payloads into plain nested Python containers.
+
+    W&B and some Lightning logger paths can stringify unsupported objects such as
+    ``DictConfig`` instances. Normalizing eagerly keeps nested sections like
+    ``data`` and ``model`` as real dictionaries.
+    """
+    if OmegaConf.is_config(payload):
+        payload = OmegaConf.to_container(
+            payload,
+            resolve=True,
+            throw_on_missing=throw_on_missing,
+            enum_to_str=True,
+        )
+
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if stripped and stripped[0] in "[{(":
+            try:
+                payload = ast.literal_eval(stripped)
+            except (SyntaxError, ValueError):
+                return payload
+        else:
+            return payload
+
+    if isinstance(payload, dict):
+        return {
+            str(key): _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [
+            _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for value in payload
+        ]
+    if isinstance(payload, tuple):
+        return [
+            _normalize_logging_payload(value, throw_on_missing=throw_on_missing)
+            for value in payload
+        ]
+    if isinstance(payload, Path):
+        return str(payload)
+
+    return payload
 
 
 # --------------------------------------------------------------------------------------
@@ -211,6 +260,7 @@ def log_hyperparameters(object_dict: dict[str, Any]) -> None:
     hparams["tags"] = cfg.get("tags")
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
+    hparams = _normalize_logging_payload(hparams)
 
     # send hparams to all loggers
     for logger in trainer.loggers:
@@ -220,6 +270,72 @@ def log_hyperparameters(object_dict: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------------------
 # General utils (from utils.py)
 # --------------------------------------------------------------------------------------
+
+
+def make_wandb_run_name(cfg: DictConfig) -> str:
+    """Generate a descriptive W&B run name from the most important config knobs.
+
+    Pattern::
+
+        <model>-<act>_s<seed>_L<lmbda>_<mode>_buf<buf>_<loss>_lr<lr>_b<bs>[_<patches>p]
+
+    Examples::
+
+        FP-gdn_s42_L10_rcmc_buf512_MSE_lr0.0001_b4_700p
+        SHP-relu_s42_L0.1_slc_buf1024_Compound_lr0.0001_b2
+    """
+    # ── model class ────────────────────────────────────────────────────────────────
+    target = cfg.model.net.get("_target_", "") or ""
+    if "FactorizedPrior" in target:
+        model = "FP"
+    elif "ScaleHyperprior" in target:
+        model = "SHP"
+    else:  # Fall back to the last component of the dotted path
+        model = target.split(".")[-1]
+
+    activation = cfg.model.net.get("activation", "gdn")
+    seed = cfg.get("seed", None)
+
+    # ── training mode (slc / rcmc) ──────────────────────────────────────────────
+    mode = cfg.model.get("training_mode", "slc")
+
+    # ── azimuth buffer ───────────────────────────────────────────────────────────
+    buf = cfg.get("azimuth_buffer", cfg.model.get("azimuth_buffer", "?"))
+
+    # ── loss ─────────────────────────────────────────────────────────────────────
+    loss_target = cfg.model.criterion.get("_target_", "") or ""
+    if "CompoundSAR" in loss_target:
+        loss = "SAR"
+    elif "Compound" in loss_target:
+        loss = "Compound"
+    elif "SimpleMSE" in loss_target:
+        loss = "MSE"
+    else:
+        loss = loss_target.split(".")[-1]
+
+    lmbda = cfg.model.criterion.get("lmbda", "?")
+
+    # ── optimiser ────────────────────────────────────────────────────────────────
+    lr = cfg.model.get("net_optimizer", {}).get("lr", None)
+    if lr is None:
+        lr = cfg.model.get("optimizer", {}).get("lr", "?")
+
+    bs = cfg.data.get("batch_size", "?")
+
+    # ── dataset size (total patches seen per epoch) ───────────────────────────────
+    max_prod = cfg.data.get("max_products_train", None)
+    spp = cfg.data.get("samples_per_prod", 0)
+    if max_prod is not None and spp and int(spp) > 0:
+        patches_tag = f"_{int(max_prod) * int(spp)}p"
+    else:
+        patches_tag = ""
+
+    return (
+        f"{model}-{activation}_s{seed}_L{lmbda}_{mode}_buf{buf}_{loss}"
+        f"_lr{lr}_b{bs}{patches_tag}"
+    )
+
+
 @rank_zero_only
 def early_wandb_initialization(cfg: DictConfig) -> None:
     """Manual initialization of the W&B run. Extra logic is called is the run is set offline, see wandb_osh.
@@ -246,14 +362,16 @@ def early_wandb_initialization(cfg: DictConfig) -> None:
         # Suppress logging messages (e.g., warnings about the syncing not being fast enough)
         wandb_osh.set_log_level("ERROR")  # for wandb_osh.__version__ >= 1.2.0
 
-    # Manual cast of the config from a DictConfig to a regular dict (should be supported by W&B by now)
-    wandb.config = omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+    cfg_dict = _normalize_logging_payload(cfg, throw_on_missing=True)
+    # Use an explicit run_name from the config if provided; otherwise auto-generate.
+    run_name = cfg.logger.wandb.get("run_name", None) or make_wandb_run_name(cfg)
     wandb.init(
         entity=cfg.logger.wandb.entity,
         project=cfg.logger.wandb.project,
+        name=run_name,
         dir=cfg.logger.wandb.save_dir,
-        # name=make_a_nice_run_name(cfg), @TODO: implement make_a_nice_run_name
         tags=cfg.tags,
+        config=cfg_dict,
         mode="offline" if cfg.logger.wandb.offline else "online",
         settings=wandb.Settings(start_method="thread"),
     )
@@ -380,6 +498,7 @@ __all__ = [
     "enforce_tags",
     # general
     "early_wandb_initialization",
+    "make_wandb_run_name",
     "extras",
     "task_wrapper",
     "get_metric_value",

@@ -1,0 +1,81 @@
+# @package _global_
+
+# Experiment configuration for RCMC compression
+# This combines model, data, and trainer settings
+
+defaults:
+  - /training_mode: slc   # switch with: training_mode=slc_mse | training_mode=slc
+  - override /data: maya4_dir.yaml
+  - override /model: rcmc_compress.yaml
+  - override /callbacks: default.yaml
+  - override /logger: wandb.yaml
+  - override /trainer: ddp.yaml
+  - override /hydra: default.yaml
+
+# Experiment metadata
+tags: ["rcmc_compression", "scale_hyperprior", "maya4"]
+experiment_name: "rcmc_compress_baseline"
+
+# Seed for reproducibility
+seed: 42
+
+# Azimuth buffer size (shared between data and model)
+# NOTE: Total size (patch_size + 2*buffer) must be divisible by 16
+# Examples: patch=512  buffer=128 ->  768 ( 768/16=48  ✓)  ~2 GB VRAM
+#           patch=1024 buffer=256 -> 1536 (1536/16=96  ✓)  ~4 GB VRAM  ← baseline
+#           patch=2048 buffer=512 -> 3072 (3072/16=192 ✓)  ~12 GB VRAM (requires A100+)
+patch_size: [512, 512]
+azimuth_buffer: 512
+lambda: ${model.criterion.lmbda}
+
+# Trainer configuration
+trainer:
+  max_epochs: 30
+  accelerator: "gpu"
+  devices: 4
+  precision: "32-true"  # cuFFT needs power-of-2 sizes for "16-mixed"
+
+  # Validation and checkpointing
+  # val_check_interval and check_val_every_n_epoch are mutually exclusive in Lightning;
+  # use only check_val_every_n_epoch.
+  check_val_every_n_epoch: 1
+
+# Data configuration
+data:
+  # Local directories of zarr products, one per split. Populate them (e.g. download from
+  # the ESA-philab/Maya4 bucket) or stream online instead — see docs/QUICKSTART.md.
+  train_dir: ${paths.data_dir}/maya4/train
+  val_dir: ${paths.data_dir}/maya4/val
+  test_dir: ${paths.data_dir}/maya4/test
+  patch_size: ${patch_size}
+  batch_size: 4
+  num_workers: 4
+  max_products_train: 10
+  max_products_val: 2
+  max_products_test: 2
+  samples_per_prod: 1000   # patches per product per epoch; 0 = all
+  online: false          # keep false on compute nodes; enable only on a node with outbound network
+  azimuth_buffer: ${azimuth_buffer}
+
+# Model configuration
+# training_mode and criterion._target_ are set by the training_mode config group above.
+# λ default comes from the group (rcmc/slc_mse: 100.0, slc: 0.01).
+# Override per-run: model.criterion.lmbda=0.001
+model:
+  azimuth_buffer: ${azimuth_buffer}
+  criterion:
+    lmbda: 1000
+
+# Logging
+logger:
+  wandb:
+    entity: "cedric-leonard"
+    project: "MAYA_DC"
+    offline: True
+
+# Callbacks
+callbacks:
+  monitor_val_recon:
+    log_every_n_epochs: 1
+    num_images: 3
+    verbose: True

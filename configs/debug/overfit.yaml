@@ -1,13 +1,32 @@
 # @package _global_
 
-# overfits to 3 batches
+# Overfit on a single training batch.
+#
+# WHY NOT overfit_batches: Lightning's `overfit_batches` creates a
+# torch.utils.data.Subset with *integer* indices [0,1,...], which breaks
+# RCMCSARDataset whose __getitem__ expects a (zfile, y, x) tuple.
+# Using limit_train_batches=1 achieves the same goal without Subsets.
 
 defaults:
   - default
 
 trainer:
-  max_epochs: 20
-  overfit_batches: 3
+  max_epochs: 100
+  accelerator: gpu             # override default.yaml's cpu — model is too large for fast CPU overfit
+  limit_train_batches: 1       # only ever see one batch per epoch
+  num_sanity_val_steps: 0      # skip sanity-check val (avoids the same Subset issue)
+  check_val_every_n_epoch: 999 # skip periodic validation — not needed for overfit debug
+  log_every_n_steps: 1         # log every step so the per-epoch curve is complete
 
 # model ckpt and early stopping need to be disabled during overfitting
-callbacks: null
+# callbacks: null
+
+# debug/default.yaml sets logger: null in its BODY (not via the defaults list),
+# which overrides any config-group selection from the defaults list.
+# The only way to restore logging is to override logger directly in this body.
+logger:
+  csv:
+    _target_: lightning.pytorch.loggers.csv_logs.CSVLogger
+    save_dir: "${paths.output_dir}"
+    name: "csv/"
+    prefix: ""

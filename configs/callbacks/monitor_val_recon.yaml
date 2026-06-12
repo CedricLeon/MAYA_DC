@@ -1,0 +1,6 @@
+monitor_val_recon:
+  _target_: src.callbacks.monitor_val_reconstruction.MonitorValReconstruction
+  log_every_n_epochs: 5
+  num_images: 3
+  clip_factor: 3.0
+  verbose: False

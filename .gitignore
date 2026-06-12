@@ -1,3 +1,7 @@
+##### Project specific #####
+.s5cfg
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -153,3 +157,5 @@ outputs/
 
 # Aim logging
 .aim
+LOGS/
+notebooks/cache/

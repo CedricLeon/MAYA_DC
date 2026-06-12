@@ -1,0 +1,48 @@
+_target_: src.models.rcmc_compress_module.RCMCDCmodule
+
+# Network architecture
+net:
+  _target_: src.models.components.scale_hyperprior.ScaleHyperprior
+  nb_input_channels: 2  # Complex data: real + imaginary
+  nb_channels_main: 128  # Number of channels in main network
+  nb_channels_latent: 256 # Number of channels in latent space (bottleneck)
+  activation: "gdn"  # Activation function (gdn or relu)
+  non_square_kernels: false  # If true, range (W) kernels are 3x wider than azimuth (H):
+                             # 5x5 -> 5x15, 3x3 -> 3x9. Factor 3 matches the 3:1 Az:Rg
+                             # aspect ratio of the default patch (1536 x 512).
+
+# Loss function — set by the training_mode config group (configs/training_mode/).
+# Do not configure criterion here; this block is a placeholder so Hydra knows
+# the key exists before the group merges its values.
+criterion:
+  lmbda: 0.01      # default fallback; overridden by experiment configs
+  patch_size: [512, 512]  # default; training_mode group overrides via ${patch_size}
+  azimuth_buffer: 512      # default; training_mode group overrides via ${azimuth_buffer}
+
+# Azimuth compression
+azimuth_buffer: 512
+
+# Optimizers
+net_optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.0001
+  betas: [0.9, 0.999]
+
+aux_optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+
+# Scheduler
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: "min"
+  factor: 0.5
+  patience: 5
+
+# Training
+training_mode: "slc"  # "slc": train via azimuth compression on SLC domain | "rcmc": train on RCMC domain directly, no az. compression (F8)
+gradient_clip_norm: 1.0
+compile: False

@@ -3,20 +3,23 @@ defaults:
   - early_stopping
   - model_summary
   - rich_progress_bar
+  - monitor_val_recon
+  # monitor_fixed_patch is opt-in: it needs a local product (see configs/fixed_patches/).
+  # Add it back to this list (or via `callbacks=...`) once patch_json points at a real product.
   - _self_
 
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "epoch_{epoch:03d}"
-  monitor: "val/acc"
-  mode: "max"
+  monitor: "valid/loss"
+  mode: "min"
+  filename: "epoch_{epoch:03d}_loss_{valid/loss:.4f}"
   save_last: True
   auto_insert_metric_name: False
 
 early_stopping:
-  monitor: "val/acc"
-  patience: 100
-  mode: "max"
+  monitor: "valid/loss"
+  patience: 10
+  mode: "min"
 
 model_summary:
-  max_depth: -1
+  max_depth: 2

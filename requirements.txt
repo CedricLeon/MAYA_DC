@@ -31,3 +31,5 @@ zarr>=2.15.0
 numcodecs>=0.12.0
 fsspec>=2023.10.0
 huggingface_hub>=0.21.0
+
+compressai==1.2.8
