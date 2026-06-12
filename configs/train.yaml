@@ -7,7 +7,7 @@ defaults:
   - model: rcmc_compress
   - training_mode: slc
   - callbacks: default
-  - logger: wandb
+  - logger: csv
   - trainer: default
   - paths: default
   - extras: default

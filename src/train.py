@@ -102,9 +102,13 @@ def _configure_single_node_ddp_environment(cfg: DictConfig) -> None:
         f"GLOO_SOCKET_IFNAME={os.environ['GLOO_SOCKET_IFNAME']}>"
     )
     if previous_nccl_ifname and previous_nccl_ifname != "lo":
-        log.info(f"Overrode inherited NCCL_SOCKET_IFNAME <{previous_nccl_ifname}> for single-node DDP")
+        log.info(
+            f"Overrode inherited NCCL_SOCKET_IFNAME <{previous_nccl_ifname}> for single-node DDP"
+        )
     if previous_gloo_ifname and previous_gloo_ifname != "lo":
-        log.info(f"Overrode inherited GLOO_SOCKET_IFNAME <{previous_gloo_ifname}> for single-node DDP")
+        log.info(
+            f"Overrode inherited GLOO_SOCKET_IFNAME <{previous_gloo_ifname}> for single-node DDP"
+        )
 
 
 @task_wrapper
@@ -172,15 +176,22 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Starting testing!")
         ckpt_path = cfg.get("ckpt_path")
         if cfg.get("train"):
-            assert isinstance(trainer.checkpoint_callback, ModelCheckpoint)
-            best_ckpt_path = trainer.checkpoint_callback.best_model_path
-            if best_ckpt_path == "":
-                log.warning("Best ckpt not found! Using current weights for testing...")
-                ckpt_path = None
+            checkpoint_callback = trainer.checkpoint_callback
+            if (
+                isinstance(checkpoint_callback, ModelCheckpoint)
+                and checkpoint_callback.best_model_path
+            ):
+                ckpt_path = checkpoint_callback.best_model_path
             else:
-                ckpt_path = best_ckpt_path
+                log.warning(
+                    "Best ckpt not found / ModelCheckpoint not configured! "
+                    "Using current weights for testing..."
+                )
+                ckpt_path = None
         elif ckpt_path in {"", None}:
-            log.warning("No ckpt_path provided for test-only run! Using current weights for testing...")
+            log.warning(
+                "No ckpt_path provided for test-only run! Using current weights for testing..."
+            )
             ckpt_path = None
         trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
         log.info(f"Best ckpt path: {ckpt_path}")
