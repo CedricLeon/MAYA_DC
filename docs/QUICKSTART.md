@@ -195,8 +195,6 @@ configs/
 
 ## 📋 See Also
 
-- [../IMPLEMENTATION_SUMMARY.md](../IMPLEMENTATION_SUMMARY.md) — bug-fix/feature history (F1–F15), *historical*
-- [../CONVERGENCE_ANALYSIS.md](../CONVERGENCE_ANALYSIS.md) — convergence diagnosis, *historical*
+- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — bug-fix/feature history (F1–F15), *historical*
 - [cluster.md](cluster.md) — how the paper runs were launched (ESA SpaceHPC / PBS)
 - [raw-data.md](raw-data.md) — off-git paper-data layout
-- [../progress_tracking.md](../progress_tracking.md) — research TODO list, *historical*

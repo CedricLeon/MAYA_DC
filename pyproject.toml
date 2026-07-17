@@ -1,6 +1,6 @@
 [project]
 name = "maya-dc"
-version = "0.1.0"
+version = "1.0.0"
 description = "Early Compression of SAR Data Pre-Focusing using Neural Image Compression"
 readme = "README.md"
 requires-python = ">=3.12"

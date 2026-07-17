@@ -60,14 +60,14 @@ patch = zarr_array[roi_slice]
 count_row = min(last_row_chunk * chunk_rows, full_rows)
 ```
 
-### 4. Path Handling
+### 2. Path Handling
 - Use `rootutils` to ensure paths are relative to the project root, regardless of where the script is run.
     ```python
     import rootutils
     root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
     ```
 
-### 5. SAR Data Visualization Conventions (Critical)
+### 3. SAR Data Visualization Conventions (Critical)
 - **Display**: Always use **log-intensity**: `logI = ln(re² + im² + ε)` from `phys_to_logI_torch`.
   Clip for contrast: `mean ± clip_factor·std` (default `clip_factor=3.0`).
   Always use the **`viridis`** colormap. Never display raw real/imag channels or linear amplitude directly.
@@ -82,36 +82,16 @@ count_row = min(last_row_chunk * chunk_rows, full_rows)
 ## External Dependencies
 - **Hydra**: Config management.
 - **PyTorch Lightning**: Training loop abstraction.
-- **Sarpyx**: Internal/Library for SAR metadata and sensor models.
-- **Maya4**: Internal/Library used for loadeing the MAYA4 datasets.
+- **Sarpyx**: SAR processing library (metadata, sensor models, CoarseRDA); installed from PyPI.
+- **Maya4**: dataset/loader library for the MAYA4 HuggingFace bucket; installed from git.
 
-## Working with Documentation Files
+## Documentation
 
-The project uses three living markdown files that must be kept up to date:
-
-### [`IMPLEMENTATION_SUMMARY.md`](../IMPLEMENTATION_SUMMARY.md)
-The technical memory of the project. Update it whenever:
-- A bug is fixed: add a `BUG N` or `FIX N` entry in the existing style.
-- A new feature is implemented: move it from the Future Features table to a new `IMPROVE N` entry.
-- A design decision is made: add a note to the **Design Notes** section.
-- A new planned feature is identified: add a row to the **Future Features** table (F1–FN).
-
-### [`QUICKSTART.md`](../QUICKSTART.md)
-The operator's reference. Update it whenever:
-- A command changes or a new entry point is added.
-- A config parameter is added, renamed, or its default changes.
-- A key file is added or removed from the project layout.
-
-### [`progress_tracking.md`](../progress_tracking.md)
-**Maintained by the user.** Do not rewrite sections or restructure this file.
-You may only:
-- Check off a `[ ]` item to `[x]` when the user confirms a task is done.
-- Add a new `- [ ]` item if the user explicitly asks for it.
-
-### General rule
-After any non-trivial code change, update the relevant section of
-`IMPLEMENTATION_SUMMARY.md` in the same response. Do not defer documentation to
-a separate step.
+Project orientation lives in [`CLAUDE.md`](../CLAUDE.md) (code map + commands) and
+[`docs/QUICKSTART.md`](../docs/QUICKSTART.md) (operator reference: commands, key config
+parameters, project layout). Keep `docs/QUICKSTART.md` in sync when a command, config default,
+or key file changes. [`docs/IMPLEMENTATION_SUMMARY.md`](../docs/IMPLEMENTATION_SUMMARY.md) is a
+*historical* record of the EUSAR26 development (bug-fix/feature history F1–F15) — not maintained.
 
 ## `# type: ignore` Policy
 
