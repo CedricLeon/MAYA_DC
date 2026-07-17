@@ -3,6 +3,16 @@
 > Orientation for agents/maintainer. If something here disagrees with the code,
 > trust the code and fix this file.
 
+## Commit Workflow
+
+Before committing Python changes, run `black .` (and the other pre-commit hooks) first, then
+stage the reformatted files — otherwise the formatter rewrites them and blocks the first commit.
+
+## Editing Files
+
+Read a file immediately before editing it so exact-match strings are current; for large or
+repetitive blocks, read the surrounding context first to avoid match failures.
+
 ## What this is
 
 Neural Image Compression (NIC) of **Range Cell Migration Corrected (RCMC)** Sentinel-1 SAR
