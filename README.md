@@ -6,22 +6,27 @@
 <a href="https://pytorchlightning.ai/"><img alt="Lightning" src="https://img.shields.io/badge/-Lightning-792ee5?logo=pytorchlightning&logoColor=white"></a>
 <a href="https://hydra.cc/"><img alt="Config: Hydra" src="https://img.shields.io/badge/Config-Hydra-89b8cd"></a>
 <a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
-[![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
-[![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/paper/2020)
+<a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+<a href="https://huggingface.co/buckets/ESA-philab/Maya4"><img alt="Dataset" src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-ESA--philab%2FMaya4-ffcc00.svg"></a>
+<!-- TODO: add the paper/DOI badge once the EUSAR26 proceedings are published, e.g.:
+[![Paper](http://img.shields.io/badge/DOI-xxxxx-B31B1B.svg)](https://doi.org/xxxxx) -->
 
 </div>
 
 ## Description
 
-This project uses Neural Image Compression (NIC) networks to compress Range Cell Migration Corrected (RCMC) SAR data.
+This project uses Learned Image Compression (LIC) networks to compress Range Cell Migration Corrected (RCMC) SAR data.
 The results were submitted and presented at [EUSAR26](https://www.eusar.de/en).
 
 ### Motivation
 
 This project explores the possibility to compress Synthetic Aperture Radar (SAR) data during the focusing pipeline.
-SAR data consists of complex-valued radar echoes when acquired, this RAW dat is equivalent to processing Level 0 (L0).
-Through various signal processing steps, these radar echoes are assembled to construct an image of the observed seen called Single-Look Complex (SLC), this image is equivalent to Level 1 (L1).
-Efficiently compressing SAR SLC data is a complex but achievable task. However, it requires to construct the SLC onboard the data collection platform which is a resource-constrained environment (SmallSats or UAVs), ideally the compression of the data would be done on the RAW data which is a extremely complex task given the size and nature of these arrays of echoes. Nowadays, this task is still performed by conventional codecs such as BAQ, or FDBAQ.
+SAR data consists of complex-valued radar echoes.
+When acquired this RAW data is equivalent to processing Level 0.
+Through various signal processing steps, these radar echoes are assembled to construct an image of the observed scene called Single-Look Complex (SLC), this image is equivalent to Level 1.
+Efficiently compressing SAR SLC data is a complex but achievable task.
+However, it requires to construct (focus) the SLC onboard the data collection platform which is typically a resource-constrained environment (SmallSats or UAVs).
+Ideally the compression of the data would be done on the RAW data (as performed nowadays by conventional codecs such as BAQ, or FDBAQ), but it is an extremely complex task given the size and nature of these arrays of echoes.
 
 In an effort to push the learned-compression of SAR data as early as possible in the processing pipeline, we perform compression of RCMC data.
 The focusing of SAR data, i.e., the transformation from L0 to L1, can be summarized in 3 steps:
@@ -30,78 +35,50 @@ The focusing of SAR data, i.e., the transformation from L0 to L1, can be summari
 2. Range Correction: `rc` to `rcmc`
 3. Azimuth Compresson: `rcmc` to `az` (L1)
 
-## Problem formulation
+In this project, we compressed data at the `rcmc` stage: a LIC model encodes/decodes the RCMC data, then a differentiable azimuth-compression step focuses the reconstruction into an SLC that is compared against the ground-truth SLC.
+The detailed problem formulation and the azimuth-filter
+derivation are in the EUSAR26 paper (see [Citation](#citation)).
 
-*Extracted from my Obsidian vault.*
+### Dataset & Method
 
-### Manual Azimuth Compression
+The data is the public [`ESA-philab/Maya4`](https://huggingface.co/buckets/ESA-philab/Maya4) HuggingFace bucket.
+It consists of four representations (from `raw` to `az`) of Sentinel-1 products and can be streamed directly at train time
+(no manual download; see [Quick start](#quick-start)).
 
-We have the original (or reconstructed) *rcmc* image and want to compute the *az* image.
-To do so, we need to work in Fourier domain and compute the *azimuth filter*. Following the notations of Rich-Hall in his notebook:
+As for the method, we used a simple hyperprior autoencoder based on [Variational image compression with a scale hyperprior](https://openreview.net/forum?id=rkcQFMZRb) (Ballé et al., 2018).
 
-$$\text{Azimuth filter} = exp\biggl\{4i\pi\frac{R_{0}D(f_{\eta}, V_{r})}{\lambda}\biggl\}$$
-Where:
+### Results
 
-- $R_0$ is the *slant range of closest approach*: The straight-line distance from the satellite track to each range bin on the ground. It is constant for all azimuth lines and has the shape $(N_{rg},)$, a 1D vector where $N_{rg}$ is the number of range samples.
-- $D$ is the migration factor, or the cosinus of the instantaneous squint angle, as it varies with both azimuth and range it has the same shape as our radar data. It is calculated with:
-  - $f_{\eta}$, the frequency axis after the FFT
-  - $V_{r}$ is the effective spacecraft velocity
+...
 
-In the code Rich-Hall compute the migration factor per chunk for an easier memory management (see the `yield` keyword in [[Python]] to transform a function in iterator).
+## Usage
 
-**Problem** (see question 1 of [[Onboarding Phi-Lab meeting Roberto - 2026-01-08]]): the chunks are only in azimuth directions. They contain the complete range arrays ... Does it work if we only have part of it?
+### Installation
 
-- If **yes** then we don't even need the chunking, the data should be small enough to fit entirely in memory and we can perform azimuth compression in one step.
+All Python dependencies are declared in `pyproject.toml` and install automatically — including the SAR packages `maya4` and `sarpyx` (**no manual cloning needed**).
+`environment.yaml` pins the Python interpreter (3.12) and runs a single `pip install -e ".[dev]"`.
 
-Because we cannot process the complete image $A$ we manipulate it as *patches*, i.e., contiguous subsets of $A$ called *submatrices* or $A_S$. The question is how do we calculate the equivalent subset of $C$ that we call $C_S$.
-
-## Installation
-
-All Python dependencies are declared in `pyproject.toml` and install
-automatically — including the SAR packages `maya4` and `sarpyx` (**no manual
-cloning needed**). `environment.yaml` pins the Python interpreter (3.12) and runs
-a single `pip install -e ".[dev]"`.
-
-> **Note:** `maya4` and `compressai` currently install from git (the fixes we
-> need aren't on PyPI yet — see the comments in `pyproject.toml`); `sarpyx`
-> installs from PyPI. A C/C++ compiler must be available to build `compressai`.
+> **Note:** `maya4` and `compressai` currently install from git (the fixes we need aren't on PyPI yet — see the comments in `pyproject.toml`); `sarpyx` installs from PyPI. A C/C++ compiler must be available to build `compressai`.
 
 ```bash
 # 1. Clone the repo
-git clone <repo_url>
+git clone https://github.com/CedricLeon/MAYA_DC
 cd MAYA_DC
 
 # 2. Create the environment (run from repo root)
 conda env create -f environment.yaml
 conda activate MAYA_DC
+# Use `pip install -e ".[dev]"` to do the same without conda
 
 # 3. Verify
 python -c "import torch, lightning, hydra, compressai, maya4, sarpyx; print('All OK')"
 ```
 
-> **Without conda:** `pip install -e ".[dev]"` from the repo root works too — it
-> installs everything, pulling `maya4`/`compressai` from git and `sarpyx` from PyPI.
+> **CI note:** the automated **test** and **code-coverage** workflows are temporarily disabled. Code-quality (pre-commit) checks still run. See `.github/workflows/test.yml` to re-enable.
 
-To update after pulling new changes:
+### Quick start
 
-```bash
-conda env update -f environment.yaml --prune
-```
-
-### Optional: pre-commit hooks
-
-```bash
-pre-commit install
-```
-
-> **CI note:** the automated **test** and **code-coverage** workflows are
-> temporarily disabled. Code-quality (pre-commit) checks still run. See
-> `.github/workflows/test.yml` to re-enable.
-
-## Quick start
-
-See [QUICKSTART.md](QUICKSTART.md) for the full operator reference including
-training commands, key config parameters, and the project layout.
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full operator reference including training commands, key config parameters, and the project layout.
 
 ```bash
 # Smoke-test (CPU, 2 batches)
@@ -114,11 +91,8 @@ python src/train.py experiment=rcmc_compress_baseline
 python src/train.py experiment=rcmc_compress_baseline data=maya4 data.online=true
 ```
 
-## Usage
-
 The entry points are `src/train.py` (training) and `src/eval.py` (evaluation).
-All parameters are managed by [Hydra](https://hydra.cc/); override anything from
-the CLI:
+All parameters are managed by [Hydra](https://hydra.cc/); so you can override anything from the CLI:
 
 ```bash
 python src/train.py experiment=rcmc_compress_baseline \
@@ -130,6 +104,35 @@ python src/train.py experiment=rcmc_compress_baseline \
 For debugging:
 
 ```bash
-python src/train.py debug=fdr   # fast_dev_run, no logging
+python src/train.py debug=fdr      # fast_dev_run, no logging
 python src/train.py debug=overfit  # overfit on 1 batch
 ```
+
+### Reproducing the paper results
+
+The paper compares the learned codec (square vs non-square kernels) against classical codecs (JPEG / JPEG2000 / WebP) across a rate–distortion sweep of the $\lambda$ knob.
+
+```bash
+# 1. Train the sweep — λ is the rate–distortion trade-off (paper sweep):
+for L in 1 3 5 7 8 10 15 20 35 50 100 1000; do
+  python src/train.py experiment=rcmc_compress_baseline model.criterion.lmbda=$L
+done
+# Note: You should also train for several seeds, for example we trained for 3 seeds in the paper.
+
+# 2. Classical-codec rate–distortion baselines. One CSV per codec (codec ∈ {jpeg, jpeg2000, webp}):
+python scripts/evaluate_classical_codec_rd.py <products_dir> jpeg2000 baselines_jpeg2000.csv
+
+# 3. Rate–distortion curves (reads the tracked CSVs under notebooks/paper_results/):
+python notebooks/plot_combined_rd_curves.py
+
+# 4. Qualitative reconstruction overview (needs the raw .npy reconstructions under data/from_cluster/, see docs/raw-data.md):
+python notebooks/make_overview_figure.py
+```
+
+The pre-computed inputs used for the paper figures are tracked under [`notebooks/paper_results/`](notebooks/paper_results); the canonical interactive analysis is [`notebooks/RD-curve_plots.ipynb`](notebooks/RD-curve_plots.ipynb).
+
+## Citation
+
+<!-- TODO: add a CITATION.cff (and BibTeX below) once the EUSAR26 proceedings are published. -->
+
+If you use this code or the associated results, please cite the EUSAR26 paper (reference to be added once the proceedings are published).
