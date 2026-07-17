@@ -216,7 +216,9 @@ def denormalize_from_uint8(arr_uint8: np.ndarray, arr_min: float, arr_max: float
     return (scaled * (arr_max - arr_min) + arr_min).astype(np.float32)
 
 
-def encode_decode_grayscale(arr: np.ndarray, codec: str, quality: int) -> tuple[np.ndarray, int, float, float]:
+def encode_decode_grayscale(
+    arr: np.ndarray, codec: str, quality: int
+) -> tuple[np.ndarray, int, float, float]:
     arr_uint8, arr_min, arr_max = normalize_to_uint8(arr)
     image = Image.fromarray(arr_uint8, mode="L")
     tmp = io.BytesIO()
@@ -241,7 +243,9 @@ def amplitude_from_channels(x: torch.Tensor) -> torch.Tensor:
     return torch.sqrt(torch.clamp(x[:, 0] ** 2 + x[:, 1] ** 2, min=0.0))
 
 
-def amplitude_psnr(pred_amp: torch.Tensor, target_amp: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def amplitude_psnr(
+    pred_amp: torch.Tensor, target_amp: torch.Tensor, eps: float = 1e-8
+) -> torch.Tensor:
     pred_amp = pred_amp.float()
     target_amp = target_amp.float()
     batch = pred_amp.shape[0]
@@ -250,7 +254,9 @@ def amplitude_psnr(pred_amp: torch.Tensor, target_amp: torch.Tensor, eps: float 
     return (10.0 * torch.log10(data_range**2 / (mse + eps))).mean()
 
 
-def amplitude_ssim(pred_amp: torch.Tensor, target_amp: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def amplitude_ssim(
+    pred_amp: torch.Tensor, target_amp: torch.Tensor, eps: float = 1e-8
+) -> torch.Tensor:
     pred_amp = pred_amp.float().unsqueeze(1)
     target_amp = target_amp.float().unsqueeze(1)
     data_range = float(torch.clamp(target_amp.max() - target_amp.min(), min=eps).item())
@@ -331,7 +337,9 @@ def compute_complex_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[st
     }
 
 
-def compute_amplitude_metrics(pred_amp: torch.Tensor, target_amp: torch.Tensor) -> dict[str, float]:
+def compute_amplitude_metrics(
+    pred_amp: torch.Tensor, target_amp: torch.Tensor
+) -> dict[str, float]:
     return {
         "psnr_amp": float(amplitude_psnr(pred_amp, target_amp).item()),
         "ssim_amp": float(amplitude_ssim(pred_amp, target_amp).item()),
@@ -536,7 +544,9 @@ def main() -> None:
 
     raw_df = pd.DataFrame.from_records(raw_records)
     if raw_df.empty:
-        raise RuntimeError("No records were produced. Check the input directory and sampling args.")
+        raise RuntimeError(
+            "No records were produced. Check the input directory and sampling args."
+        )
 
     summary_df = build_summary(
         raw_df,
