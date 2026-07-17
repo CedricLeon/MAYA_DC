@@ -1,8 +1,7 @@
 # CLAUDE.md — MAYA_DC working notes
 
-> Orientation for agents/maintainer. Reflects the repo **after the 2026-06 cleanup**.
-> The project had a chaotic multi-machine phase before the EUSAR26 deadline; if something
-> here disagrees with the code, trust the code and fix this file.
+> Orientation for agents/maintainer. If something here disagrees with the code,
+> trust the code and fix this file.
 
 ## What this is
 
@@ -53,30 +52,16 @@ Installable from a fresh clone — no manual cloning. In `pyproject.toml`:
 - `maya4` — **git `pypi` branch** (PyPI 0.1.2 is unusable: zarr-v2 `zarr.hierarchy` + no HF-bucket
   support). `TODO(maya4-pypi)` to switch once upstream publishes.
 - `compressai` — **git `main`** (PyPI 1.2.8 caps `numpy<2`). `TODO(compressai-pypi)` likewise.
-- `huggingface-hub>=1.5` (bucket API). `numpy>=2`. The old `Maya4/ srp/ s1isp/` clones were
-  removed (`s1isp` was demo-notebook-only). Building `compressai` from git needs a C/C++ compiler.
+- `huggingface-hub>=1.5` (bucket API). `numpy>=2`. Building `compressai` from git needs a
+  C/C++ compiler. Detailed investigation: `docs/dependency-bump-notes.md`.
 
 ## data/ (gitignored: `/data/`)
 
-- The new canonical dataset is the **public HF bucket `ESA-philab/Maya4`** (maya4's default);
+- The canonical dataset is the **public HF bucket `ESA-philab/Maya4`** (maya4's default);
   online streaming is verified working.
-- **~144 GB deprecated local data** (`PT1/ PT2/ PT4/ TEST/ test_complete_download/
-  sentinel1_copernicus/`) — stale; **scheduled for deletion (P7, pending final OK)**.
 - `data/from_cluster/` (off-git) — paper artifacts: `results_extracted/` (raw `.npy`
   reconstructions) + `cache3_extracted/` (codec-eval outputs). See `docs/raw-data.md`.
-  Paper experiment = `sq` vs `nsq` kernels × the λ sweep × seeds, vs JPEG/JPEG2000/WebP.
-
-## Repo & branch state
-
-| Branch | What it is |
-|---|---|
-| `main` | bare `lightning-hydra-template` + demo notebook. **Not the project** (to be replaced at release). |
-| `dev` / `origin/dev` (`fbff7fd`) | the pre-chaos project line. |
-| `minimal_upgrades` | `dev` + 6 post-deadline "chaos" commits, ending in `4c38d61 "ok"` (a 2,928-line unreviewed catch-all by R. Del Prete from the cluster). |
-| **`clean-chaos`** | **current** — the release cleanup, branched off `minimal_upgrades`. |
-| `feature/az_compr`, `feature/local_az_compr` | early stale spurs. |
-
-Safety tag **`cluster-chaos`** (local) → `4c38d61` preserves the pre-cleanup state.
+  Paper experiment = `sq` vs `nsq` kernels x the λ sweep x seeds, vs JPEG/JPEG2000/WebP.
 
 ## Commands
 
@@ -93,11 +78,3 @@ Constraint: `patch_size[0] + 2*azimuth_buffer` must be divisible by 16 (datamodu
 
 Paper runs used **ESA SpaceHPC** with **PBS/OpenPBS** (`qsub`/`qstat`). The PBS launchers were
 removed; their commands are preserved in **`docs/cluster.md`**.
-
-## Cleanup status (2026-06-11, branch `clean-chaos`)
-
-De-vendor, cluster-glue removal, analysis consolidation, scripts tidy, HF-streaming verify, and
-the B1–B6 fixes are **done & committed**. Remaining: this doc pass, the MNIST-template de-cruft
-follow-up, then merge → `dev` → release `main` (gated), and the 144 GB delete (P7, gated).
-`CLEANUP_SUMMARY.md` is a temporary branch note (deleted before merge). Detailed dependency
-investigation: `docs/dependency-bump-notes.md`.
