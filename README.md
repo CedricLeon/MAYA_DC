@@ -94,6 +94,10 @@ conda env update -f environment.yaml --prune
 pre-commit install
 ```
 
+> **CI note:** the automated **test** and **code-coverage** workflows are
+> temporarily disabled. Code-quality (pre-commit) checks still run. See
+> `.github/workflows/test.yml` to re-enable.
+
 ## Quick start
 
 See [QUICKSTART.md](QUICKSTART.md) for the full operator reference including
