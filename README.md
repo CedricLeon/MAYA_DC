@@ -49,7 +49,19 @@ As for the method, we used a simple hyperprior autoencoder based on [Variational
 
 ### Results
 
-...
+<p align="center">
+  <img src="docs/assets/RD-curves_diff_metrics.svg" alt="Rate–distortion curves" width="90%">
+</p>
+
+Rate–distortion performance on the focused SLC: the learned codec with square (`sq`) and non-square (`nsq`) kernels against the classical JPEG / JPEG2000 / WebP baselines.
+
+<p align="center">
+  <img src="docs/assets/overview_figure.svg" alt="Qualitative reconstruction overview" width="90%">
+</p>
+
+Qualitative reconstructions of an RCMC patch and its focused SLC across the λ sweep (rate grows with λ).
+
+Refer to the paper for more results, their interpretation and the discussion.
 
 ## Usage
 
