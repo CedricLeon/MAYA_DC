@@ -5,18 +5,17 @@
 <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>
 <a href="https://pytorchlightning.ai/"><img alt="Lightning" src="https://img.shields.io/badge/-Lightning-792ee5?logo=pytorchlightning&logoColor=white"></a>
 <a href="https://hydra.cc/"><img alt="Config: Hydra" src="https://img.shields.io/badge/Config-Hydra-89b8cd"></a>
-<a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
+<a href="https://github.com/CedricLeon/HyLightning_template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
 <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
 <a href="https://huggingface.co/buckets/ESA-philab/Maya4"><img alt="Dataset" src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-ESA--philab%2FMaya4-ffcc00.svg"></a>
-<!-- TODO: add the paper/DOI badge once the EUSAR26 proceedings are published, e.g.:
-[![Paper](http://img.shields.io/badge/DOI-xxxxx-B31B1B.svg)](https://doi.org/xxxxx) -->
+<a href="https://ieeexplore.ieee.org/abstract/document/11677517"><img alt="Paper" src="https://img.shields.io/badge/📄%20Paper-IEEE%20Xplore-blue.svg"></a>
 
 </div>
 
 ## Description
 
 This project uses Learned Image Compression (LIC) networks to compress Range Cell Migration Corrected (RCMC) SAR data.
-The results were submitted and presented at [EUSAR26](https://www.eusar.de/en).
+The results were presented at [EUSAR26](https://www.eusar.de/en), the paper is available on [IEEE Xplore](https://ieeexplore.ieee.org/abstract/document/11677517).
 
 ### Motivation
 
